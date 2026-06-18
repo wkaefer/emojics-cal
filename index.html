@@ -1,0 +1,3354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calendar Scrapbook</title>
+<style>
+  :root {
+    --bg: #fafafa;
+    --fg: #222;
+    --cell-bg: #fff;
+    --cell-border: #ddd;
+    --muted: #999;
+    --accent: #3b6cb4;
+    --today-ring: #ff7043;
+    --modal-bg: rgba(0,0,0,0.55);
+    --shadow: 0 8px 24px rgba(0,0,0,0.18);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+
+  /* ===== Header ===== */
+  header {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 20px;
+    background: #fff;
+    border-bottom: 1px solid #e0e0e0;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+  }
+  .nav-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    user-select: none;
+  }
+  .nav-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--accent);
+    font-size: 1.4rem;
+    line-height: 1;
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .nav-btn:hover { background: #eef3fb; border-color: #cdd9ee; }
+  .month-label {
+    font-size: 1.4rem;
+    font-weight: 600;
+    min-width: 11ch;
+    text-align: center;
+  }
+  .today-pill {
+    font-size: 0.85rem;
+    padding: 6px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--accent);
+    background: #fff;
+    color: var(--accent);
+    cursor: pointer;
+  }
+  .today-pill:hover { background: var(--accent); color: #fff; }
+
+  /* ===== Calendar wrapper with themed border ===== */
+  #calendar-wrap {
+    flex: 1 1 auto;
+    margin: 14px;
+    padding: 18px;
+    border-radius: 14px;
+    border: 6px solid;
+    background:
+      linear-gradient(#fff, #fff) padding-box,
+      var(--theme-gradient, linear-gradient(135deg, #ccc, #999)) border-box;
+    border-color: transparent;
+    box-shadow: var(--shadow);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+  }
+  /* Inner clipper so the day grid still doesn't bleed past the rounded corners,
+     while leaving the wrapper itself unclipped for floating corner emoji. */
+  #calendar-wrap > .weekday-row,
+  #calendar-wrap > .grid {
+    position: relative;
+    z-index: 1;
+  }
+  .theme-emoji {
+    position: absolute;
+    font-size: 1.6rem;
+    line-height: 1;
+    opacity: 0.95;
+    pointer-events: none;
+    z-index: 5;
+    width: 1.8rem;
+    height: 1.8rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  }
+  /* Sit centered on the 6px themed border so they float over it,
+     not inside the calendar content area. */
+  .theme-emoji.tl { top: -0.9rem; left: -0.9rem; }
+  .theme-emoji.tr { top: -0.9rem; right: -0.9rem; }
+  .theme-emoji.bl { bottom: -0.9rem; left: -0.9rem; }
+  .theme-emoji.br { bottom: -0.9rem; right: -0.9rem; }
+
+  /* Themes */
+  [data-theme="0"]  { --theme-gradient: linear-gradient(135deg, #b3e5fc, #ffffff); --theme-emoji: "❄️"; }
+  [data-theme="1"]  { --theme-gradient: linear-gradient(135deg, #f8bbd0, #e53935); --theme-emoji: "💝"; }
+  [data-theme="2"]  { --theme-gradient: linear-gradient(135deg, #a5d6a7, #ffd54f); --theme-emoji: "🍀"; }
+  [data-theme="3"]  { --theme-gradient: linear-gradient(135deg, #c8e6c9, #fff59d); --theme-emoji: "🌷"; }
+  [data-theme="4"]  { --theme-gradient: linear-gradient(135deg, #aed581, #f8bbd0); --theme-emoji: "🌸"; }
+  [data-theme="5"]  { --theme-gradient: linear-gradient(135deg, #fff176, #81d4fa); --theme-emoji: "☀️"; }
+  [data-theme="6"]  { --theme-gradient: linear-gradient(135deg, #ef5350, #ffffff 50%, #42a5f5); --theme-emoji: "🎆"; }
+  [data-theme="7"]  { --theme-gradient: linear-gradient(135deg, #ffe0b2, #4dd0e1); --theme-emoji: "🏖️"; }
+  [data-theme="8"]  { --theme-gradient: linear-gradient(135deg, #ffb74d, #6d4c41); --theme-emoji: "🍂"; }
+  [data-theme="9"]  { --theme-gradient: linear-gradient(135deg, #fb8c00, #212121); --theme-emoji: "🎃"; }
+  [data-theme="10"] { --theme-gradient: linear-gradient(135deg, #8d6e63, #ff8a65); --theme-emoji: "🦃"; }
+  [data-theme="11"] { --theme-gradient: linear-gradient(135deg, #c62828, #2e7d32, #bdbdbd); --theme-emoji: "🎄"; }
+
+  /* ===== Calendar grid ===== */
+  .weekday-row {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+    margin-bottom: 4px;
+    font-weight: 600;
+    color: #555;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .weekday-row > div { padding: 4px 8px; text-align: left; }
+  .grid {
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    grid-auto-rows: 1fr;
+    gap: 4px;
+    min-height: 0;
+  }
+  .cell {
+    background: var(--cell-bg);
+    border: 1px solid var(--cell-border);
+    border-radius: 8px;
+    padding: 6px;
+    position: relative;
+    cursor: pointer;
+    overflow: hidden;
+    transition: transform 0.08s, box-shadow 0.08s, border-color 0.08s;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .cell:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.12); border-color: #bbb; }
+  .cell.empty { background: transparent; cursor: default; border-color: transparent; }
+  .cell.empty:hover { box-shadow: none; }
+  .cell.today { border-color: var(--today-ring); box-shadow: 0 0 0 2px var(--today-ring) inset; }
+  .cell .day-num {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #444;
+  }
+  .cell.today .day-num { color: var(--today-ring); }
+  .cell .event-title {
+    font-size: 0.78rem;
+    color: var(--accent);
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Multi-event stacked rows */
+  .cell .event-row {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 0.75rem;
+    color: var(--accent);
+    margin-top: 2px;
+    overflow: hidden;
+    white-space: nowrap;
+    cursor: pointer;
+    border-radius: 3px;
+    padding: 1px 2px;
+  }
+  .cell .event-row:hover { background: #eef3fb; }
+  .cell .event-row .ev-icon {
+    flex: 0 0 auto;
+    font-size: 0.8rem;
+    line-height: 1;
+  }
+  .cell .event-row .ev-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1 1 0;
+  }
+  .cell .more-events {
+    font-size: 0.68rem;
+    color: #888;
+    margin-top: 1px;
+    padding: 0 2px;
+    cursor: pointer;
+  }
+  .cell .more-events:hover { color: var(--accent); }
+
+  /* Day emojis (local-only annotation, not exported to .ics) */
+  .cell .emoji-row {
+    margin-top: 2px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1px;
+    font-size: 0.7rem;
+    line-height: 1;
+    max-height: 2.2em;
+    overflow: hidden;
+    cursor: pointer;
+  }
+
+  /* Emoji picker inside the day modal */
+  .emoji-selected {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 4px;
+    min-height: 1.8rem;
+    padding: 4px;
+    border: 1px dashed #ddd;
+    border-radius: 6px;
+    background: #fafafa;
+  }
+  .emoji-selected:empty::before {
+    content: '(none)';
+    color: #999;
+    font-size: 0.8rem;
+    font-style: italic;
+  }
+  .emoji-chip {
+    font-size: 1.1rem;
+    line-height: 1;
+    padding: 4px 6px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fff;
+    cursor: pointer;
+    user-select: none;
+  }
+  .emoji-chip:hover { background: #fde2e2; border-color: #f8aaaa; }
+  .emoji-chip::after {
+    content: ' ×';
+    color: #c62828;
+    font-size: 0.75rem;
+  }
+  .emoji-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 8px;
+  }
+  .emoji-tab {
+    font-size: 0.78rem;
+    padding: 3px 8px;
+    border: 1px solid #ccc;
+    border-radius: 999px;
+    background: #fff;
+    cursor: pointer;
+  }
+  .emoji-tab.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  .emoji-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    margin-top: 6px;
+    padding: 6px;
+    background: #f7f7f7;
+    border-radius: 6px;
+    max-height: 140px;
+    overflow-y: auto;
+  }
+  .emoji-grid button {
+    font-size: 1.2rem;
+    line-height: 1;
+    padding: 4px 6px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    cursor: pointer;
+  }
+  .emoji-grid button:hover { background: #fff; border-color: #ccc; }
+
+  /* Thumb stack */
+  .thumb-stack {
+    position: absolute;
+    bottom: 6px;
+    right: 6px;
+    width: 70px;
+    height: 48px;
+  }
+  .thumb-stack .thumb {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    border-radius: 4px;
+    background: #eee no-repeat center / cover;
+    border: 1px solid #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  }
+  .thumb-stack .thumb.s2 { transform: translate(-4px, -4px) rotate(-3deg); opacity: 0.85; }
+  .thumb-stack .thumb.s3 { transform: translate(-7px, -7px) rotate(-6deg); opacity: 0.7; }
+  .thumb-stack .badge {
+    position: absolute;
+    top: -6px; right: -6px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 999px;
+    padding: 1px 6px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+
+  /* ===== Modal ===== */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: var(--modal-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .modal {
+    background: #fff;
+    border-radius: 12px;
+    padding: 20px;
+    min-width: 380px;
+    max-width: 90vw;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: var(--shadow);
+  }
+  .modal h2 { margin: 0 0 12px; font-size: 1.2rem; }
+  .modal label { display: block; font-size: 0.85rem; color: #555; margin-top: 10px; }
+  .modal input[type="text"], .modal textarea {
+    width: 100%;
+    padding: 8px;
+    margin-top: 4px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font: inherit;
+  }
+  .modal textarea { min-height: 80px; resize: vertical; }
+  .modal-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+  .btn {
+    padding: 8px 14px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    background: #fff;
+    cursor: pointer;
+    font: inherit;
+  }
+  .btn:hover { background: #f5f5f5; }
+  .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn-primary:hover { background: #2d559a; }
+  .btn-danger { background: #c62828; color: #fff; border-color: #c62828; }
+  .btn-danger:hover { background: #a41f1f; }
+
+  .image-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .image-strip .image-tile {
+    position: relative;
+    width: 70px;
+    height: 50px;
+    border-radius: 4px;
+    background: #eee no-repeat center / cover;
+    cursor: pointer;
+    border: 1px solid #ccc;
+  }
+  .image-tile .x {
+    position: absolute;
+    top: -6px; right: -6px;
+    background: #c62828;
+    color: #fff;
+    border-radius: 50%;
+    width: 18px; height: 18px;
+    font-size: 0.75rem;
+    line-height: 18px;
+    text-align: center;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+  .image-tile.remote::after {
+    content: '🌐';
+    position: absolute;
+    bottom: 2px; right: 2px;
+    font-size: 13px;
+    line-height: 1;
+    text-shadow: 0 0 3px #fff, 0 0 3px #fff;
+    pointer-events: none;
+  }
+  .broken-img {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f3f3f3;
+    border-radius: 4px;
+    border: 1px dashed #ccc;
+  }
+
+  /* Gallery */
+  .gallery {
+    background: #111;
+    color: #fff;
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    box-shadow: var(--shadow);
+  }
+  .gallery .counter { font-size: 0.85rem; opacity: 0.8; }
+  .gallery .stage {
+    position: relative;
+    width: 300px;
+    height: 200px;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .gallery .stage img { max-width: 100%; max-height: 100%; }
+  .gallery .arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(0,0,0,0.55);
+    color: #fff;
+    border: none;
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 1.2rem;
+  }
+  .gallery .arrow.left { left: 6px; }
+  .gallery .arrow.right { right: 6px; }
+  .gallery .close {
+    align-self: flex-end;
+    background: transparent;
+    color: #fff;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 2px 8px;
+    cursor: pointer;
+  }
+
+  /* Toast */
+  #toast-root {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+  }
+  .toast {
+    background: #323232;
+    color: #fff;
+    padding: 10px 16px;
+    border-radius: 6px;
+    box-shadow: var(--shadow);
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    font-size: 0.9rem;
+    animation: slideUp 0.2s ease-out;
+  }
+  .toast button {
+    background: transparent;
+    color: #ffb74d;
+    border: none;
+    font-weight: 600;
+    cursor: pointer;
+    text-transform: uppercase;
+    font-size: 0.8rem;
+  }
+  @keyframes slideUp {
+    from { transform: translateY(20px); opacity: 0; }
+    to   { transform: translateY(0); opacity: 1; }
+  }
+
+  /* ===== Mobile / narrow-screen responsive ===== */
+  @media (max-width: 600px) {
+
+    /* Header — stack nav and actions vertically */
+    header {
+      flex-direction: column;
+      align-items: stretch;
+      padding: 8px 12px;
+      gap: 6px;
+    }
+    .nav-group {
+      justify-content: center;
+    }
+    .nav-btn {
+      font-size: 1.1rem;
+      padding: 4px 8px;
+    }
+    .month-label {
+      font-size: 1.1rem;
+      min-width: 9ch;
+    }
+    header > div:last-child {
+      justify-content: center;
+    }
+
+    /* Calendar wrapper — tighten margins and border */
+    #calendar-wrap {
+      margin: 4px;
+      padding: 8px;
+      border-width: 3px;
+    }
+    .theme-emoji.tl { top: -0.6rem; left: -0.6rem; }
+    .theme-emoji.tr { top: -0.6rem; right: -0.6rem; }
+    .theme-emoji.bl { bottom: -0.6rem; left: -0.6rem; }
+    .theme-emoji.br { bottom: -0.6rem; right: -0.6rem; }
+
+    /* Weekday row — Option B: hide the .long spans (the initial letter stays) */
+    .weekday-row .long { display: none; }
+    /* Option A: font-size:0 on the div hides any residual text; ::first-letter
+       restores just the leading character. Works whether .long spans are present
+       (Option B) or absent (Option A standalone). */
+    .weekday-row > div {
+      font-size: 0;
+      padding: 4px 2px;
+      text-align: center;
+    }
+    .weekday-row > div::first-letter {
+      font-size: 0.75rem;
+    }
+
+    /* Day cells — smaller, leaner */
+    .cell {
+      padding: 3px;
+      border-radius: 5px;
+    }
+    .cell .day-num {
+      font-size: 0.72rem;
+    }
+    .cell .event-title {
+      font-size: 0.62rem;
+      margin-top: 1px;
+    }
+    .cell .event-row {
+      font-size: 0.6rem;
+      margin-top: 1px;
+      padding: 0 1px;
+    }
+    .cell .event-row .ev-icon { font-size: 0.7rem; }
+    .cell .emoji-row {
+      font-size: 0.6rem;
+      max-height: 1.4em;
+    }
+    /* Hide photo thumbnails — too wide for small cells */
+    .thumb-stack { display: none; }
+
+    /* Modal — remove fixed min-width that breaks narrow screens */
+    .modal {
+      min-width: unset;
+      width: 95vw;
+      padding: 14px;
+    }
+
+    /* Gallery — fluid width instead of fixed 300px */
+    .gallery .stage {
+      width: min(300px, 85vw);
+      height: calc(min(300px, 85vw) * 0.667);
+    }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="nav-group">
+    <button class="nav-btn" id="prevYear" title="Previous year (↑)">«</button>
+    <button class="nav-btn" id="prevMonth" title="Previous month (←)">‹</button>
+    <span class="month-label" id="monthLabel"></span>
+    <button class="nav-btn" id="nextMonth" title="Next month (→)">›</button>
+    <button class="nav-btn" id="nextYear" title="Next year (↓)">»</button>
+  </div>
+  <div style="display:flex; gap:8px; align-items:center;">
+    <button class="today-pill" id="importIcsBtn" title="Browse server .ics files">📥 Import ICS</button>
+    <button class="today-pill" id="todayBtn" title="Jump to today (T)">Today</button>
+  </div>
+</header>
+
+<div id="calendar-wrap" data-theme="0">
+  <span class="theme-emoji tl"></span>
+  <span class="theme-emoji tr"></span>
+  <span class="theme-emoji bl"></span>
+  <span class="theme-emoji br"></span>
+  <div class="weekday-row">
+    <div>S<span class="long">un</span></div><div>M<span class="long">on</span></div><div>T<span class="long">ue</span></div><div>W<span class="long">ed</span></div><div>T<span class="long">hu</span></div><div>F<span class="long">ri</span></div><div>S<span class="long">at</span></div>
+  </div>
+  <div class="grid" id="grid"></div>
+</div>
+
+<div id="modal-root"></div>
+<div id="toast-root"></div>
+
+<script>
+/* =============================================================
+ * IndexedDB wrapper  —  schema v2
+ *
+ * events store: keyPath = 'id' (UUID)
+ *   indexes: byDateKey ('dateKey'), byMonth ('yyyymm'), byCategory ('category')
+ *
+ * v1 → v2 migration: re-key existing events by a legacy id and add fields.
+ * ============================================================= */
+const DB_NAME = 'calendarScrapbook';
+const DB_VERSION = 2;
+
+function newEventId() {
+  return crypto.randomUUID
+    ? crypto.randomUUID()
+    : 'ev-' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+}
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+
+    req.onupgradeneeded = e => {
+      const db  = e.target.result;
+      const txn = e.target.transaction; // the implicit upgrade transaction
+
+      /* ---- images store: unchanged ---- */
+      if (!db.objectStoreNames.contains('images')) {
+        const s = db.createObjectStore('images', { keyPath: 'id' });
+        s.createIndex('byDateKey', 'dateKey', { unique: false });
+      }
+
+      /* ---- events store ---- */
+      if (e.oldVersion < 1) {
+        // Fresh install — create v2 store directly.
+        const s = db.createObjectStore('events', { keyPath: 'id' });
+        s.createIndex('byDateKey',  'dateKey',  { unique: false });
+        s.createIndex('byMonth',    'yyyymm',   { unique: false });
+        s.createIndex('byCategory', 'category', { unique: false });
+
+      } else if (e.oldVersion === 1) {
+        // Migrate v1 (keyPath='dateKey') → v2 (keyPath='id').
+        // Read all v1 records from the upgrade transaction, then recreate the store.
+        const oldStore = txn.objectStore('events');
+        const allOld = [];
+        const curReq = oldStore.openCursor();
+        curReq.onsuccess = ev2 => {
+          const c = ev2.target.result;
+          if (c) { allOld.push(c.value); c.continue(); return; }
+          // All records loaded — recreate store.
+          db.deleteObjectStore('events');
+          const ns = db.createObjectStore('events', { keyPath: 'id' });
+          ns.createIndex('byDateKey',  'dateKey',  { unique: false });
+          ns.createIndex('byMonth',    'yyyymm',   { unique: false });
+          ns.createIndex('byCategory', 'category', { unique: false });
+          for (const old of allOld) {
+            const migrated = {
+              id:          'legacy-' + old.dateKey,
+              dateKey:     old.dateKey,
+              yyyymm:      old.yyyymm || (old.dateKey.slice(0,4) + old.dateKey.slice(5,7)),
+              category:    'personal',
+              readOnly:    false,
+              source:      null,
+              title:       old.title       || '',
+              description: old.description || '',
+              emojis:      old.emojis      || [],
+              imageIds:    old.imageIds    || [],
+              imageUrls:   old.imageUrls   || [],
+              createdAt:   old.createdAt   || Date.now(),
+              updatedAt:   old.updatedAt   || Date.now(),
+            };
+            ns.put(migrated);
+          }
+        };
+        curReq.onerror = () => console.error('v1→v2 migration cursor error', curReq.error);
+      }
+    };
+
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  });
+}
+
+let _dbPromise = null;
+function db() { return _dbPromise || (_dbPromise = openDB()); }
+
+function tx(stores, mode='readonly') {
+  return db().then(d => d.transaction(stores, mode));
+}
+function reqP(req) {
+  return new Promise((res, rej) => {
+    req.onsuccess = () => res(req.result);
+    req.onerror   = () => rej(req.error);
+  });
+}
+
+/* Get all events for a specific date, sorted by category priority then createdAt. */
+async function getEventsForDate(dateKey) {
+  const t = await tx(['events']);
+  const idx = t.objectStore('events').index('byDateKey');
+  return new Promise((res, rej) => {
+    const out = [];
+    const cur = idx.openCursor(IDBKeyRange.only(dateKey));
+    cur.onsuccess = e => {
+      const c = e.target.result;
+      if (c) { out.push(c.value); c.continue(); }
+      else {
+        // personal first, then others; within category, oldest first
+        const catOrder = v => v === 'personal' ? 0 : 1;
+        out.sort((a, b) => catOrder(a.category) - catOrder(b.category) || (a.createdAt||0) - (b.createdAt||0));
+        res(out);
+      }
+    };
+    cur.onerror = () => rej(cur.error);
+  });
+}
+
+/* Legacy compat: first personal event for a date, or first event of any kind. */
+async function getEvent(dateKey) {
+  const evs = await getEventsForDate(dateKey);
+  return evs.find(e => e.category === 'personal') || evs[0] || null;
+}
+
+async function getEventById(id) {
+  const t = await tx(['events']);
+  return reqP(t.objectStore('events').get(id));
+}
+
+/* Returns Map<dateKey, Event[]> for the given month. */
+async function getEventsForMonth(year, month) {
+  const yyyymm = `${year}${String(month+1).padStart(2,'0')}`;
+  const t = await tx(['events']);
+  const idx = t.objectStore('events').index('byMonth');
+  return new Promise((res, rej) => {
+    const out = new Map();
+    const cur = idx.openCursor(IDBKeyRange.only(yyyymm));
+    cur.onsuccess = e => {
+      const c = e.target.result;
+      if (c) {
+        const ev = c.value;
+        const list = out.get(ev.dateKey) || [];
+        list.push(ev);
+        out.set(ev.dateKey, list);
+        c.continue();
+      } else {
+        // Sort each day's list
+        const catOrder = v => v === 'personal' ? 0 : 1;
+        for (const [, list] of out) {
+          list.sort((a, b) => catOrder(a.category) - catOrder(b.category) || (a.createdAt||0) - (b.createdAt||0));
+        }
+        res(out);
+      }
+    };
+    cur.onerror = () => rej(cur.error);
+  });
+}
+
+async function putEvent(ev) {
+  if (!ev.id) ev.id = newEventId();
+  ev.yyyymm    = ev.dateKey.slice(0,4) + ev.dateKey.slice(5,7);
+  ev.category  = ev.category  || 'personal';
+  ev.readOnly  = ev.readOnly  || false;
+  ev.updatedAt = Date.now();
+  if (!ev.createdAt) ev.createdAt = ev.updatedAt;
+  const t = await tx(['events'], 'readwrite');
+  await reqP(t.objectStore('events').put(ev));
+  return ev;
+}
+
+/*
+ * Delete a single event by id.
+ * Images (keyed by dateKey) are cascade-deleted only if this is the
+ * last event on that date, to avoid orphaning images referenced by
+ * sibling events.
+ */
+async function deleteEventCascade(eventId) {
+  const t = await tx(['events','images'], 'readwrite');
+  const evStore  = t.objectStore('events');
+  const imgStore = t.objectStore('images');
+
+  const ev = await reqP(evStore.get(eventId));
+  if (!ev) return null;
+
+  // Count remaining events on this date (excluding the one being deleted)
+  const dateKey = ev.dateKey;
+  const byDateIdx = evStore.index('byDateKey');
+  const siblings = await new Promise((res, rej) => {
+    const out = [];
+    const cr = byDateIdx.openCursor(IDBKeyRange.only(dateKey));
+    cr.onsuccess = e2 => {
+      const c = e2.target.result;
+      if (c) { if (c.value.id !== eventId) out.push(c.value); c.continue(); }
+      else res(out);
+    };
+    cr.onerror = () => rej(cr.error);
+  });
+
+  const imgs = [];
+  if (siblings.length === 0) {
+    // Last event on the day — cascade images
+    await new Promise((res, rej) => {
+      const imgIdx = imgStore.index('byDateKey');
+      const cr = imgIdx.openCursor(IDBKeyRange.only(dateKey));
+      cr.onsuccess = e2 => {
+        const c = e2.target.result;
+        if (c) { imgs.push(c.value); c.continue(); }
+        else res();
+      };
+      cr.onerror = () => rej(cr.error);
+    });
+    for (const img of imgs) imgStore.delete(img.id);
+  }
+
+  evStore.delete(eventId);
+  await new Promise((res, rej) => { t.oncomplete = res; t.onerror = () => rej(t.error); });
+  return { event: ev, images: imgs };
+}
+
+async function restoreEventCascade(snapshot) {
+  if (!snapshot) return;
+  const t = await tx(['events','images'], 'readwrite');
+  t.objectStore('events').put(snapshot.event);
+  for (const img of snapshot.images) t.objectStore('images').put(img);
+  await new Promise((res, rej) => { t.oncomplete = res; t.onerror = () => rej(t.error); });
+}
+async function addImage(dateKey, blob, mime, width, height) {
+  const id = 'img_' + (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
+  const rec = { id, dateKey, blob, mime, width, height, addedAt: Date.now() };
+  const t = await tx(['images'], 'readwrite');
+  await reqP(t.objectStore('images').put(rec));
+  return rec;
+}
+async function getImage(id) {
+  const t = await tx(['images']);
+  return reqP(t.objectStore('images').get(id));
+}
+async function getImagesForDate(dateKey) {
+  const t = await tx(['images']);
+  const idx = t.objectStore('images').index('byDateKey');
+  return new Promise((res, rej) => {
+    const out = [];
+    const cur = idx.openCursor(IDBKeyRange.only(dateKey));
+    cur.onsuccess = e => {
+      const c = e.target.result;
+      if (c) { out.push(c.value); c.continue(); }
+      else res(out);
+    };
+    cur.onerror = () => rej(cur.error);
+  });
+}
+async function deleteImage(id) {
+  const img = await getImage(id);
+  if (!img) return null;
+  const t = await tx(['images'], 'readwrite');
+  await reqP(t.objectStore('images').delete(id));
+  return img;
+}
+async function restoreImage(img) {
+  const t = await tx(['images'], 'readwrite');
+  await reqP(t.objectStore('images').put(img));
+}
+
+/* =============================================================
+ * Image resize util — preserves PNG/JPEG/WebP, else → JPEG
+ * ============================================================= */
+async function resizeImage(file) {
+  const MAX_W = 300, MAX_H = 200;
+  const bmp = await createImageBitmap(file);
+  let { width, height } = bmp;
+  const scale = Math.min(MAX_W / width, MAX_H / height, 1);
+  width  = Math.max(1, Math.round(width * scale));
+  height = Math.max(1, Math.round(height * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(bmp, 0, 0, width, height);
+  bmp.close && bmp.close();
+
+  let mime = file.type;
+  if (mime !== 'image/png' && mime !== 'image/jpeg' && mime !== 'image/webp') {
+    mime = 'image/jpeg';
+  }
+  const quality = (mime === 'image/png') ? undefined : 0.85;
+  const blob = await new Promise(res => canvas.toBlob(res, mime, quality));
+  return { blob, mime, width, height };
+}
+
+/* =============================================================
+ * URL image helpers
+ * ============================================================= */
+
+// Validate and normalise a user-supplied URL.
+// Returns the href string on success, null if invalid/non-http(s).
+function normalizeImageUrl(s) {
+  s = String(s || '').trim();
+  if (!s) return null;
+  try {
+    const u = new URL(s);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    return u.href;
+  } catch { return null; }
+}
+
+// Build a same-sized placeholder tile for a broken / unresolvable URL image.
+function makeBrokenImageTile(w, h) {
+  const el = document.createElement('div');
+  el.className = 'broken-img';
+  el.style.cssText =
+    `width:${w}px;height:${h}px;font-size:${Math.round(h * 0.55)}px;`;
+  el.textContent = '🖼️';
+  return el;
+}
+
+/* =============================================================
+ * State
+ * ============================================================= */
+const state = {
+  year:  new Date().getFullYear(),
+  month: new Date().getMonth(),
+  eventsByDate: new Map(),    // dateKey -> event record
+  thumbCache:   new Map(),    // imageId -> objectURL (current render)
+  modalOpen:    false,
+};
+
+const MONTH_NAMES = ['January','February','March','April','May','June',
+                     'July','August','September','October','November','December'];
+
+/* =============================================================
+ * Emoji sections (local-only day tags — NOT exported to .ics)
+ * ============================================================= */
+const EMOJI_SECTIONS = [
+  { key: 'circles',    label: 'Circles',    emojis: ['🔴','🟠','🟡','🟢','🔵','🟣','🟤','⚫','⚪','🟥','🟧','🟨','🟩','🟦','🟪','🟫','⬛','⬜'] },
+  { key: 'hearts',     label: 'Hearts',     emojis: ['❤️','🧡','💛','💚','💙','💜','🤎','🖤','🤍','💖','💔','❣️','💕','💗','💘','💝'] },
+  { key: 'faces',      label: 'Faces',      emojis: ['🙂','😀','😃','😄','😊','😉','😍','🤔','😎','😴','😢','😭','😡','🤒','🤕','🥳','🤯','😱','🥰','😇'] },
+  { key: 'weather',    label: 'Weather',    emojis: ['☀️','🌤️','⛅','🌥️','☁️','🌦️','🌧️','⛈️','🌩️','❄️','🌨️','🌪️','🌫️','🌈','💨','💧'] },
+  { key: 'activities', label: 'Activities', emojis: ['🏃','🚴','🏊','🧘','⚽','🏀','🎾','🏈','🎵','🎶','🎮','📚','✈️','🚗','🍽️','🎉','🎂','🎁','🏕️','🛌'] },
+  { key: 'symbols',    label: 'Symbols',    emojis: ['⭐','🌟','✅','❌','❗','❓','🔔','📌','🏁','⚠️','💤','🔥','💯','🎯','📝','💡','🔒','🔓','♻️','🆗'] },
+];
+
+const RECENT_KEY = 'cal_recent_emojis';
+const RECENT_MAX = 24;
+
+function loadRecentEmojis() {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter(x => typeof x === 'string') : [];
+  } catch { return []; }
+}
+function pushRecentEmoji(e) {
+  if (!e) return;
+  const cur = loadRecentEmojis().filter(x => x !== e);
+  cur.unshift(e);
+  if (cur.length > RECENT_MAX) cur.length = RECENT_MAX;
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(cur)); } catch {}
+}
+
+function dateKey(y, m, d) {
+  return `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+}
+function todayKey() {
+  const d = new Date();
+  return dateKey(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+/* =============================================================
+ * Render
+ * ============================================================= */
+
+/* Category → icon mapping (used in mini-rows and modals) */
+const CATEGORY_ICON = {
+  personal: '',
+  moon:     '🌙',
+  flag:     '🚩',
+  holiday:  '🎉',
+};
+function categoryIcon(ev) {
+  // Prefer first emoji on the event if set, else category icon
+  if (ev.emojis && ev.emojis.length > 0) return ev.emojis[0];
+  return CATEGORY_ICON[ev.category] || '';
+}
+
+async function renderCalendar() {
+  // Revoke prior thumbnail URLs
+  for (const url of state.thumbCache.values()) URL.revokeObjectURL(url);
+  state.thumbCache.clear();
+
+  const { year, month } = state;
+  document.getElementById('monthLabel').textContent = `${MONTH_NAMES[month]} ${year}`;
+
+  // Theme
+  const wrap = document.getElementById('calendar-wrap');
+  wrap.dataset.theme = String(month);
+  const emoji = getComputedStyle(wrap).getPropertyValue('--theme-emoji').replace(/['"]/g,'').trim();
+  for (const el of wrap.querySelectorAll('.theme-emoji')) el.textContent = emoji;
+
+  // Load events — now Map<dateKey, Event[]>
+  state.eventsByDate = await getEventsForMonth(year, month);
+
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+
+  const firstDow = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const totalCells = Math.ceil((firstDow + daysInMonth) / 7) * 7;
+  const tKey = todayKey();
+  const MAX_ROWS = 3;
+
+  for (let i = 0; i < totalCells; i++) {
+    const dayNum = i - firstDow + 1;
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    if (dayNum < 1 || dayNum > daysInMonth) {
+      cell.classList.add('empty');
+      grid.appendChild(cell);
+      continue;
+    }
+    const key = dateKey(year, month, dayNum);
+    if (key === tKey) cell.classList.add('today');
+    cell.dataset.dateKey = key;
+
+    const dn = document.createElement('div');
+    dn.className = 'day-num';
+    dn.textContent = dayNum;
+    cell.appendChild(dn);
+
+    const evs = state.eventsByDate.get(key) || [];
+
+    // Stacked mini-rows (up to MAX_ROWS visible)
+    for (let ei = 0; ei < Math.min(evs.length, MAX_ROWS); ei++) {
+      const ev = evs[ei];
+      const row = document.createElement('div');
+      row.className = 'event-row';
+
+      const hasTitle = !!ev.title;
+      const hasEmojis = ev.emojis && ev.emojis.length > 0;
+
+      // Click handler shared by both rendering paths
+      const evId = ev.id;
+      const clickHandler = e => { e.stopPropagation(); openEventModal(key, evId); };
+
+      if (!hasTitle && hasEmojis) {
+        // Emoji-only event: render as a bare emoji row (no event-row chrome).
+        const emojiRow = document.createElement('div');
+        emojiRow.className = 'emoji-row';
+        emojiRow.textContent = ev.emojis.join(' ');
+        emojiRow.addEventListener('click', clickHandler);
+        cell.appendChild(emojiRow);
+        continue;
+      }
+
+      // Titled event: show category icon + title.
+      const icon_text = categoryIcon(ev);
+      if (icon_text) {
+        const icon = document.createElement('span');
+        icon.className = 'ev-icon';
+        icon.textContent = icon_text;
+        row.appendChild(icon);
+      }
+
+      const label = hasTitle ? ev.title : '';
+      const title = document.createElement('span');
+      title.className = 'ev-title';
+      title.textContent = label;
+      row.appendChild(title);
+
+      // Click on a row → open that specific event
+      row.addEventListener('click', clickHandler);
+      cell.appendChild(row);
+    }
+
+    if (evs.length > MAX_ROWS) {
+      const more = document.createElement('div');
+      more.className = 'more-events';
+      more.textContent = `+${evs.length - MAX_ROWS} more`;
+      more.addEventListener('click', e => {
+        e.stopPropagation();
+        openEventModal(key, null); // open chooser / new-event modal
+      });
+      cell.appendChild(more);
+    }
+
+    // Thumb stack for the first event that has images
+    const firstWithImages = evs.find(e => (e.imageIds && e.imageIds.length > 0) ||
+                                          (e.imageUrls && e.imageUrls.length > 0));
+    if (firstWithImages) {
+      await renderThumbStack(cell, firstWithImages);
+    }
+
+    // Cell background click → open single personal event, or create a new one
+    cell.addEventListener('click', e => {
+      if (e.target.closest('.thumb-stack')) {
+        const imgEv = firstWithImages || evs[0];
+        if (imgEv) openGallery(key, imgEv.id, 0);
+      } else if (!e.target.closest('.event-row') && !e.target.closest('.more-events') && !e.target.closest('.emoji-row')) {
+        const personalEvs = evs.filter(v => !v.readOnly);
+        if (personalEvs.length === 1) {
+          openEventModal(key, personalEvs[0].id);
+        } else {
+          openEventModal(key, null);
+        }
+      }
+    });
+
+    grid.appendChild(cell);
+  }
+}
+
+async function renderThumbStack(cell, ev) {
+  const stack = document.createElement('div');
+  stack.className = 'thumb-stack';
+  const blobCount = (ev.imageIds || []).length;
+  const urlCount  = (ev.imageUrls || []).length;
+  const count = blobCount + urlCount;
+
+  // Background offset cards
+  if (count >= 3) {
+    const t3 = document.createElement('div'); t3.className = 'thumb s3'; stack.appendChild(t3);
+  }
+  if (count >= 2) {
+    const t2 = document.createElement('div'); t2.className = 'thumb s2'; stack.appendChild(t2);
+  }
+  const t1 = document.createElement('div');
+  t1.className = 'thumb';
+  stack.appendChild(t1);
+
+  // Load first image — prefer blob, fall back to URL item
+  try {
+    if (blobCount > 0) {
+      const img = await getImage(ev.imageIds[0]);
+      if (img) {
+        const url = URL.createObjectURL(img.blob);
+        state.thumbCache.set(img.id, url);
+        t1.style.backgroundImage = `url("${url}")`;
+      }
+    } else if (urlCount > 0) {
+      // Sort URL items by addedAt and pick the earliest
+      const sorted = (ev.imageUrls).slice().sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0));
+      t1.style.backgroundImage = `url("${sorted[0].url}")`;
+      t1.style.backgroundSize = 'cover';
+      t1.style.backgroundPosition = 'center';
+    }
+  } catch {}
+
+  if (count > 1) {
+    const badge = document.createElement('div');
+    badge.className = 'badge';
+    badge.textContent = '+' + (count - 1);
+    stack.appendChild(badge);
+  }
+  cell.appendChild(stack);
+}
+
+/* =============================================================
+ * Event modal  —  openEventModal(key, eventId)
+ *   eventId=null  → create a new personal event for that date
+ *   eventId=<id>  → edit the specified event
+ * ============================================================= */
+async function openEventModal(key, eventId) {
+  state.modalOpen = true;
+  const root = document.getElementById('modal-root');
+
+  let ev;
+  if (eventId) {
+    ev = await getEventById(eventId);
+  }
+  if (!ev) {
+    // New event scaffold
+    ev = {
+      id:          newEventId(),
+      dateKey:     key,
+      category:    'personal',
+      readOnly:    false,
+      source:      null,
+      title:       '',
+      description: '',
+      imageIds:    [],
+      imageUrls:   [],
+      emojis:      [],
+    };
+  }
+  if (!ev.emojis)    ev.emojis    = [];
+  if (!ev.imageUrls) ev.imageUrls = [];
+  const isNew    = !ev.createdAt;
+  const readOnly = !!ev.readOnly;
+
+  // Pretty date
+  const [y,m,d] = key.split('-').map(Number);
+  const prettyDate = new Date(y, m-1, d).toLocaleDateString(undefined,
+    { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+
+  const catLabel = ev.source ? ` <span style="font-size:0.75rem;color:#888;font-weight:normal;">(from ${escapeHtml(ev.source)})</span>` : '';
+
+  root.innerHTML = `
+    <div class="modal-backdrop" id="backdrop">
+      <div class="modal" id="modal">
+        <h2>${prettyDate}${catLabel}</h2>
+        ${readOnly ? `<p style="font-size:0.85rem;color:#888;margin:0 0 10px;font-style:italic;">Read-only event — editing disabled.</p>` : ''}
+        <label>Title
+          <input type="text" id="ev-title" value="${escapeHtml(ev.title || '')}" ${readOnly ? 'disabled' : ''} />
+        </label>
+        <label>Description
+          <textarea id="ev-desc" ${readOnly ? 'disabled' : ''}>${escapeHtml(ev.description || '')}</textarea>
+        </label>
+        ${readOnly ? '' : `
+        <label>Emojis <span style="color:#999;font-weight:normal;font-size:0.75rem;">(not exported to .ics)</span></label>
+        <div class="emoji-selected" id="emoji-selected"></div>
+        <div class="emoji-tabs" id="emoji-tabs"></div>
+        <div class="emoji-grid" id="emoji-grid"></div>
+        <label>Images</label>
+        <div class="image-strip" id="image-strip"></div>
+        <div style="margin-top:8px;">
+          <input type="file" id="img-input" accept="image/*" multiple style="display:none" />
+          <button class="btn" id="add-img-btn">+ Add Image(s)</button>
+          <details style="margin-top:6px;">
+            <summary style="cursor:pointer;font-size:0.9rem;color:#555;">🌐 Add image URL(s)</summary>
+            <div style="margin-top:6px;display:flex;flex-direction:column;gap:4px;">
+              <textarea id="img-url-input" rows="3"
+                style="width:100%;font-size:0.85rem;padding:4px;border:1px solid #ccc;border-radius:4px;resize:vertical;"
+                placeholder="One https:// URL per line&#10;Direct image URLs display as photos&#10;Other URLs (OneDrive, Google Photos, etc.) display as 🖼️"></textarea>
+              <button class="btn" id="add-url-btn" style="align-self:flex-start;">Add URL(s)</button>
+            </div>
+          </details>
+        </div>
+        `}
+        <div class="modal-actions">
+          ${readOnly ? '' : (isNew ? '' : '<button class="btn btn-danger" id="delete-btn">Delete Event</button>')}
+          ${readOnly ? '' : (isNew ? '' : '<button class="btn" id="print-btn">🖨 Print</button>')}
+          ${readOnly ? '' : (isNew ? '' : '<button class="btn" id="ics-save-btn">💾 Save .ics</button>')}
+          ${readOnly ? '' : (isNew ? '' : '<button class="btn" id="ics-upload-btn">☁ Upload .ics</button>')}
+          ${readOnly ? '' : (isNew ? '' : '<button class="btn" id="ics-email-btn">📧 Email .ics</button>')}
+          <button class="btn" id="cancel-btn">Close</button>
+          ${readOnly ? '' : '<button class="btn btn-primary" id="save-btn">Save</button>'}
+        </div>
+      </div>
+    </div>
+  `;
+
+  const stripUrls = [];
+  async function paintStrip() {
+    if (readOnly) return; // no image strip for read-only events
+    const strip = document.getElementById('image-strip');
+    if (!strip) return;
+    strip.innerHTML = '';
+    for (const url of stripUrls) URL.revokeObjectURL(url);
+    stripUrls.length = 0;
+
+    // Build unified list sorted by addedAt (blob items carry addedAt from IDB record;
+    // URL items carry addedAt from the stored object).
+    const unified = [];
+    for (const id of (ev.imageIds || [])) {
+      const rec = await getImage(id);
+      if (rec) unified.push({ kind: 'blob', id, rec, addedAt: rec.addedAt || 0 });
+    }
+    for (let ui = 0; ui < (ev.imageUrls || []).length; ui++) {
+      const entry = ev.imageUrls[ui];
+      unified.push({ kind: 'url', entry, ui, addedAt: entry.addedAt || 0 });
+    }
+    unified.sort((a, b) => a.addedAt - b.addedAt);
+
+    if (unified.length === 0) {
+      strip.innerHTML = '<span style="color:#999;font-size:0.85rem;">(no images)</span>';
+      return;
+    }
+
+    for (let i = 0; i < unified.length; i++) {
+      const item = unified[i];
+      const tile = document.createElement('div');
+      tile.className = 'image-tile';
+
+      if (item.kind === 'blob') {
+        const objUrl = URL.createObjectURL(item.rec.blob);
+        stripUrls.push(objUrl);
+        tile.style.backgroundImage = `url("${objUrl}")`;
+        tile.title = 'Click to view';
+        tile.onclick = (e) => {
+          if (e.target.classList.contains('x')) return;
+          openGallery(key, ev.id, i);
+        };
+        const x = document.createElement('div');
+        x.className = 'x';
+        x.textContent = '×';
+        x.title = 'Delete image';
+        x.onclick = async (e) => {
+          e.stopPropagation();
+          const id = item.id;
+          const removed = await deleteImage(id);
+          ev.imageIds = ev.imageIds.filter(v => v !== id);
+          if (!isNew) await putEvent(ev);
+          await paintStrip();
+          showToast('Image deleted', async () => {
+            if (removed) await restoreImage(removed);
+            ev.imageIds.push(id);
+            if (!isNew) await putEvent(ev);
+            await paintStrip();
+          });
+        };
+        tile.appendChild(x);
+
+      } else {
+        // URL-backed item
+        tile.classList.add('remote');
+        const imgEl = document.createElement('img');
+        imgEl.src = item.entry.url;
+        imgEl.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:3px;';
+        imgEl.onerror = () => {
+          const fb = makeBrokenImageTile(70, 50);
+          fb.style.width = '100%';
+          fb.style.height = '100%';
+          fb.style.fontSize = '1.6rem';
+          imgEl.replaceWith(fb);
+        };
+        tile.title = item.entry.url;
+        tile.onclick = (e) => {
+          if (e.target.classList.contains('x')) return;
+          openGallery(key, ev.id, i);
+        };
+        tile.appendChild(imgEl);
+
+        const x = document.createElement('div');
+        x.className = 'x';
+        x.textContent = '×';
+        x.title = 'Remove URL';
+        x.onclick = async (e) => {
+          e.stopPropagation();
+          ev.imageUrls.splice(item.ui, 1);
+          if (!isNew) await putEvent(ev);
+          await paintStrip();
+        };
+        tile.appendChild(x);
+      }
+
+      strip.appendChild(tile);
+    }
+  }
+  await paintStrip();
+
+  /* ---- Emoji picker (local-only, never written to .ics) ---- */
+  if (!readOnly) {
+  let activeSection = loadRecentEmojis().length > 0 ? 'recent' : 'circles';
+
+  function getSectionEmojis(key) {
+    if (key === 'recent') return loadRecentEmojis();
+    const s = EMOJI_SECTIONS.find(x => x.key === key);
+    return s ? s.emojis : [];
+  }
+  function paintSelected() {
+    const sel = document.getElementById('emoji-selected');
+    sel.innerHTML = '';
+    ev.emojis.forEach((em, i) => {
+      const chip = document.createElement('span');
+      chip.className = 'emoji-chip';
+      chip.textContent = em;
+      chip.title = 'Remove';
+      chip.onclick = () => {
+        ev.emojis.splice(i, 1);
+        paintSelected();
+      };
+      sel.appendChild(chip);
+    });
+  }
+  function paintTabs() {
+    const tabs = document.getElementById('emoji-tabs');
+    tabs.innerHTML = '';
+    const sections = [];
+    if (loadRecentEmojis().length > 0) sections.push({ key: 'recent', label: 'Recent' });
+    sections.push(...EMOJI_SECTIONS);
+    for (const s of sections) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'emoji-tab' + (s.key === activeSection ? ' active' : '');
+      b.textContent = s.label;
+      b.onclick = () => { activeSection = s.key; paintTabs(); paintGrid(); };
+      tabs.appendChild(b);
+    }
+  }
+  function paintGrid() {
+    const grid = document.getElementById('emoji-grid');
+    grid.innerHTML = '';
+    for (const em of getSectionEmojis(activeSection)) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = em;
+      b.title = em;
+      b.onclick = () => {
+        const idx = ev.emojis.indexOf(em);
+        if (idx >= 0) ev.emojis.splice(idx, 1);
+        ev.emojis.push(em);
+        pushRecentEmoji(em);
+        paintSelected();
+        paintTabs();
+      };
+      grid.appendChild(b);
+    }
+  }
+  paintSelected();
+  paintTabs();
+  paintGrid();
+  } // end !readOnly emoji picker block
+
+  const close = () => {
+    for (const url of stripUrls) URL.revokeObjectURL(url);
+    root.innerHTML = '';
+    state.modalOpen = false;
+    renderCalendar();
+  };
+
+  document.getElementById('backdrop').addEventListener('click', e => {
+    if (e.target.id === 'backdrop') close();
+  });
+  document.getElementById('cancel-btn').onclick = close;
+
+  if (!readOnly) {
+  document.getElementById('save-btn').onclick = async () => {
+    ev.title       = document.getElementById('ev-title').value.trim();
+    ev.description = document.getElementById('ev-desc').value.trim();
+    const hasEmojis = ev.emojis && ev.emojis.length > 0;
+    const hasImages = (ev.imageIds && ev.imageIds.length > 0) ||
+                      (ev.imageUrls && ev.imageUrls.length > 0);
+    if (!ev.title && !hasImages && !hasEmojis) {
+      if (!isNew) {
+        // Existing event emptied — treat Save as Delete.
+        const snap = await deleteEventCascade(ev.id);
+        close();
+        showToast('Event deleted', async () => {
+          await restoreEventCascade(snap);
+          renderCalendar();
+        });
+      }
+      return;
+    }
+    await putEvent(ev);
+    close();
+  };
+  const delBtn = document.getElementById('delete-btn');
+  if (delBtn) delBtn.onclick = async () => {
+    const snap = await deleteEventCascade(ev.id);
+    close();
+    showToast('Event deleted', async () => {
+      await restoreEventCascade(snap);
+      renderCalendar();
+    });
+  };
+  const printBtn = document.getElementById('print-btn');
+  if (printBtn) printBtn.onclick = async () => {
+    await openPrintPreview(ev.id);
+  };
+  const icsBtn = document.getElementById('ics-save-btn');
+  if (icsBtn) icsBtn.onclick = async () => {
+    await exportEventToIcs(ev.id);
+  };
+  const icsUpBtn = document.getElementById('ics-upload-btn');
+  if (icsUpBtn) icsUpBtn.onclick = async () => {
+    await uploadEventToServer(ev.id);
+  };
+  const icsEmailBtn = document.getElementById('ics-email-btn');
+  if (icsEmailBtn) icsEmailBtn.onclick = async () => {
+    await emailEventIcs(ev.id);
+  };
+
+  // Add image
+  const fileInput = document.getElementById('img-input');
+  document.getElementById('add-img-btn').onclick = () => fileInput.click();
+  fileInput.onchange = async () => {
+    const files = Array.from(fileInput.files || []);
+    if (files.length === 0) return;
+    // Ensure event exists in DB so addImage records have a stable parent
+    if (isNew && !ev.createdAt) {
+      ev.title = document.getElementById('ev-title').value.trim() || ev.title || '';
+      ev.description = document.getElementById('ev-desc').value.trim() || ev.description || '';
+      await putEvent(ev);
+    }
+    for (const file of files) {
+      try {
+        const { blob, mime, width, height } = await resizeImage(file);
+        const rec = await addImage(key, blob, mime, width, height);
+        ev.imageIds = ev.imageIds || [];
+        ev.imageIds.push(rec.id);
+      } catch (err) {
+        console.error('Image resize failed', err);
+        alert('Could not process image: ' + (err.message || err));
+      }
+    }
+    await putEvent(ev);
+    fileInput.value = '';
+    await paintStrip();
+  };
+
+  // Add images by URL
+  document.getElementById('add-url-btn').onclick = async () => {
+    const raw = document.getElementById('img-url-input').value;
+    const urls = raw.split('\n').map(normalizeImageUrl).filter(Boolean);
+    if (urls.length === 0) {
+      alert('No valid http(s):// URLs found.');
+      return;
+    }
+    if (isNew && !ev.createdAt) {
+      ev.title = document.getElementById('ev-title').value.trim() || ev.title || '';
+      ev.description = document.getElementById('ev-desc').value.trim() || ev.description || '';
+      await putEvent(ev);
+    }
+    ev.imageUrls = ev.imageUrls || [];
+    let added = 0;
+    for (const u of urls) {
+      if (!ev.imageUrls.find(e => e.url === u)) {
+        ev.imageUrls.push({ url: u, addedAt: Date.now() });
+        added++;
+      }
+    }
+    if (added === 0) {
+      alert('All URLs already added.');
+      return;
+    }
+    await putEvent(ev);
+    document.getElementById('img-url-input').value = '';
+    await paintStrip();
+  };
+  } // end !readOnly interactive section
+}
+
+/* =============================================================
+ * Gallery
+ * ============================================================= */
+async function openGallery(key, eventId, startIndex) {
+  const ev = eventId ? await getEventById(eventId) : await getEvent(key);
+  if (!ev) return;
+
+  // Build unified list sorted by addedAt
+  const unified = [];
+  for (const id of (ev.imageIds || [])) {
+    const rec = await getImage(id);
+    if (rec) unified.push({ kind: 'blob', rec, addedAt: rec.addedAt || 0 });
+  }
+  for (const entry of (ev.imageUrls || [])) {
+    unified.push({ kind: 'url', entry, addedAt: entry.addedAt || 0 });
+  }
+  unified.sort((a, b) => a.addedAt - b.addedAt);
+  if (unified.length === 0) return;
+
+  state.modalOpen = true;
+  let idx = Math.min(startIndex || 0, unified.length - 1);
+  const root = document.getElementById('modal-root');
+
+  root.innerHTML = `
+    <div class="modal-backdrop" id="backdrop">
+      <div class="gallery">
+        <div style="display:flex;gap:6px;align-self:flex-end;">
+          <button class="close" id="g-scrapbook">📖 Scrapbook</button>
+          <button class="close" id="g-close">Close ✕</button>
+        </div>
+        <div class="counter" id="g-counter"></div>
+        <div class="stage">
+          <button class="arrow left" id="g-prev">‹</button>
+          <img id="g-img" />
+          <button class="arrow right" id="g-next">›</button>
+        </div>
+      </div>
+    </div>
+  `;
+  let currentObjUrl = null;
+  async function paint() {
+    if (currentObjUrl) { URL.revokeObjectURL(currentObjUrl); currentObjUrl = null; }
+    const item = unified[idx];
+    const imgEl = document.getElementById('g-img');
+    if (item.kind === 'blob') {
+      currentObjUrl = URL.createObjectURL(item.rec.blob);
+      imgEl.src = currentObjUrl;
+      imgEl.style.display = '';
+    } else {
+      imgEl.src = item.entry.url;
+      imgEl.style.cssText = 'max-width:100%;max-height:100%;';
+      imgEl.onerror = () => {
+        imgEl.style.display = 'none';
+        const fb = document.getElementById('g-broken');
+        if (fb) { fb.style.display = 'flex'; return; }
+        const stage = imgEl.parentElement;
+        const d = makeBrokenImageTile(240, 160);
+        d.id = 'g-broken';
+        stage.appendChild(d);
+      };
+    }
+    document.getElementById('g-counter').textContent =
+      `${idx + 1} / ${unified.length}`;
+  }
+  await paint();
+
+  const close = () => {
+    if (currentObjUrl) URL.revokeObjectURL(currentObjUrl);
+    root.innerHTML = '';
+    state.modalOpen = false;
+  };
+  document.getElementById('g-close').onclick = close;
+  document.getElementById('g-scrapbook').onclick = () => openScrapbook(key, ev.id);
+  document.getElementById('backdrop').addEventListener('click', e => {
+    if (e.target.id === 'backdrop') close();
+  });
+  document.getElementById('g-prev').onclick = () => {
+    idx = (idx - 1 + unified.length) % unified.length; paint();
+  };
+  document.getElementById('g-next').onclick = () => {
+    idx = (idx + 1) % unified.length; paint();
+  };
+
+  // Local key handling — prevent month/year nav while gallery open
+  state._galleryHandler = (e) => {
+    if (e.key === 'ArrowLeft')  { e.stopPropagation(); idx = (idx-1+unified.length) % unified.length; paint(); }
+    if (e.key === 'ArrowRight') { e.stopPropagation(); idx = (idx+1) % unified.length; paint(); }
+    if (e.key === 'Escape')     { e.stopPropagation(); close(); }
+  };
+}
+
+/* =============================================================
+ * Print preview — single event, one page, themed
+ * ============================================================= */
+const MONTH_THEMES = [
+  { grad: 'linear-gradient(135deg, #b3e5fc, #ffffff)', emoji: '❄️', accent: '#4fc3f7' },
+  { grad: 'linear-gradient(135deg, #f8bbd0, #e53935)', emoji: '💝', accent: '#e53935' },
+  { grad: 'linear-gradient(135deg, #a5d6a7, #ffd54f)', emoji: '🍀', accent: '#43a047' },
+  { grad: 'linear-gradient(135deg, #c8e6c9, #fff59d)', emoji: '🌷', accent: '#aed581' },
+  { grad: 'linear-gradient(135deg, #aed581, #f8bbd0)', emoji: '🌸', accent: '#ec407a' },
+  { grad: 'linear-gradient(135deg, #fff176, #81d4fa)', emoji: '☀️', accent: '#fbc02d' },
+  { grad: 'linear-gradient(135deg, #ef5350, #ffffff 50%, #42a5f5)', emoji: '🎆', accent: '#1976d2' },
+  { grad: 'linear-gradient(135deg, #ffe0b2, #4dd0e1)', emoji: '🏖️', accent: '#26a69a' },
+  { grad: 'linear-gradient(135deg, #ffb74d, #6d4c41)', emoji: '🍂', accent: '#a1582c' },
+  { grad: 'linear-gradient(135deg, #fb8c00, #212121)', emoji: '🎃', accent: '#fb8c00' },
+  { grad: 'linear-gradient(135deg, #8d6e63, #ff8a65)', emoji: '🦃', accent: '#8d6e63' },
+  { grad: 'linear-gradient(135deg, #c62828, #2e7d32, #bdbdbd)', emoji: '🎄', accent: '#c62828' },
+];
+
+function blobToDataURL(blob) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = () => rej(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+/* Pick the column count that maximizes the size of each image cell,
+   so all N images fit in the available content box on one page. */
+function chooseGrid(n, boxW, boxH, gap) {
+  if (n <= 0) return { cols: 1, rows: 1, cellW: boxW, cellH: boxH };
+  let best = { cols: 1, rows: n, score: 0 };
+  for (let c = 1; c <= n; c++) {
+    const r = Math.ceil(n / c);
+    const cellW = (boxW - gap * (c - 1)) / c;
+    const cellH = (boxH - gap * (r - 1)) / r;
+    if (cellW <= 0 || cellH <= 0) continue;
+    // Score = area of the cell (we use object-fit: contain so any aspect fits)
+    const score = cellW * cellH;
+    if (score > best.score) best = { cols: c, rows: r, score, cellW, cellH };
+  }
+  return best;
+}
+
+async function openPrintPreview(eventId) {
+  const ev = await getEventById(eventId);
+  if (!ev) return;
+  const dateKey = ev.dateKey;
+
+  // Load all images — blobs as data URLs, URL items as direct src.
+  // Interleave by addedAt.
+  const images = [];
+  for (const id of (ev.imageIds || [])) {
+    const rec = await getImage(id);
+    if (rec) images.push({ id, src: await blobToDataURL(rec.blob), mime: rec.mime, addedAt: rec.addedAt || 0 });
+  }
+  for (const entry of (ev.imageUrls || [])) {
+    images.push({ id: 'url_' + entry.url, src: entry.url, mime: 'image/*', addedAt: entry.addedAt || 0 });
+  }
+  images.sort((a, b) => a.addedAt - b.addedAt);
+
+  const [y, m, d] = dateKey.split('-').map(Number);
+  const monthIdx = m - 1;
+  const theme = MONTH_THEMES[monthIdx];
+  const prettyDate = new Date(y, monthIdx, d).toLocaleDateString(undefined,
+    { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+  const title = ev.title || '(untitled)';
+  const desc = ev.description || '';
+  const n = images.length;
+
+  // Estimate available image area for layout (in CSS px at ~96 DPI)
+  // Page = letter portrait minus 0.5in margins → 7.5 x 10 inches → 720 x 960 px
+  // Header band ~ 110px, description ~ 80px, footer ~ 30px → ~740px height for grid
+  const PAGE_W = 720, PAGE_H = 960;
+  const HEADER_H = 110;
+  const DESC_H = desc ? 80 : 0;
+  const FOOTER_H = 30;
+  const GAP = 8;
+  const boxW = PAGE_W;
+  const boxH = PAGE_H - HEADER_H - DESC_H - FOOTER_H;
+  const grid = n > 0 ? chooseGrid(n, boxW, boxH, GAP) : null;
+
+  const imageHTML = images.map(img =>
+    `<div class="cell"><img src="${img.src}" onerror="this.style.display='none';this.insertAdjacentHTML('afterend','<div style=\\'width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:3rem;background:#f3f3f3;\\'>🖼️</div>')" /></div>`
+  ).join('');
+
+  const tilesGridStyle = grid
+    ? `grid-template-columns: repeat(${grid.cols}, 1fr); grid-template-rows: repeat(${grid.rows}, 1fr);`
+    : '';
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>${escapeHtml(title)} — ${escapeHtml(prettyDate)}</title>
+<style>
+  @page { size: auto; margin: 0.5in; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #222; background: #f0f0f0; }
+  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  /* Toolbar (screen only) */
+  .toolbar {
+    position: sticky; top: 0; z-index: 10;
+    background: #fff; border-bottom: 1px solid #ddd;
+    padding: 10px 16px;
+    display: flex; gap: 12px; align-items: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  }
+  .toolbar h1 { margin: 0; font-size: 1rem; flex: 1; color: #555; font-weight: 500; }
+  .toolbar button {
+    padding: 8px 14px; border-radius: 6px; border: 1px solid #ccc;
+    background: #fff; cursor: pointer; font: inherit;
+  }
+  .toolbar .primary { background: #3b6cb4; color: #fff; border-color: #3b6cb4; }
+  .toolbar label { font-size: 0.9rem; color: #555; display: flex; gap: 6px; align-items: center; }
+
+  /* Page sheet */
+  .sheet {
+    width: ${PAGE_W}px;
+    height: ${PAGE_H}px;
+    margin: 24px auto;
+    background: #fff;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .header-band {
+    height: ${HEADER_H}px;
+    flex: 0 0 auto;
+    background: ${theme.grad};
+    color: #fff;
+    padding: 14px 24px;
+    display: flex; flex-direction: column; justify-content: center;
+    position: relative;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+  }
+  .header-band .emoji {
+    position: absolute; right: 20px; top: 50%; transform: translateY(-50%);
+    font-size: 3.5rem; text-shadow: none;
+  }
+  .header-band .date { font-size: 0.95rem; opacity: 0.95; margin-bottom: 4px; }
+  .header-band .title { font-size: 1.7rem; font-weight: 700; margin: 0; }
+
+  .description {
+    height: ${DESC_H}px;
+    flex: 0 0 auto;
+    padding: ${desc ? '14px 24px' : '0'};
+    border-bottom: ${desc ? '1px solid #eee' : 'none'};
+    font-size: 0.95rem;
+    line-height: 1.4;
+    color: #333;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+  }
+
+  .image-grid {
+    flex: 1 1 auto;
+    display: grid;
+    gap: ${GAP}px;
+    padding: 12px;
+    min-height: 0;
+    ${tilesGridStyle}
+  }
+  .image-grid .cell {
+    background: #fafafa;
+    border: 1px solid #eee;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  .image-grid .cell img {
+    max-width: 100%; max-height: 100%;
+    object-fit: contain;
+  }
+  .image-grid.empty {
+    display: flex; align-items: center; justify-content: center;
+    color: #aaa; font-style: italic;
+  }
+
+  .footer {
+    height: ${FOOTER_H}px;
+    flex: 0 0 auto;
+    padding: 6px 24px;
+    border-top: 1px solid #eee;
+    font-size: 0.75rem;
+    color: #999;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+
+  /* Black & white mode */
+  body.bw .header-band { background: #fff !important; color: #111; border-bottom: 2px solid #111; text-shadow: none; }
+  body.bw .header-band .emoji { filter: grayscale(1); }
+  body.bw .image-grid .cell img { filter: grayscale(1); }
+
+  @media print {
+    body { background: #fff; }
+    .toolbar { display: none; }
+    .sheet {
+      width: 100%; height: auto; min-height: 100vh;
+      margin: 0; box-shadow: none;
+      page-break-after: always;
+    }
+  }
+</style>
+</head>
+<body>
+  <div class="toolbar">
+    <h1>Print Preview — ${escapeHtml(title)}</h1>
+    <label><input type="checkbox" id="bw-toggle" /> Black &amp; white</label>
+    <button onclick="window.close()">Close</button>
+    <button class="primary" onclick="window.print()">🖨 Print</button>
+  </div>
+
+  <div class="sheet">
+    <div class="header-band">
+      <div>
+        <div class="date">${escapeHtml(prettyDate)}</div>
+        <h2 class="title">${escapeHtml(title)}</h2>
+      </div>
+      <span class="emoji">${theme.emoji}</span>
+    </div>
+    ${desc ? `<div class="description">${escapeHtml(desc)}</div>` : ''}
+    <div class="image-grid ${n === 0 ? 'empty' : ''}">
+      ${n === 0 ? '(no photos for this event)' : imageHTML}
+    </div>
+    <div class="footer">
+      <span>scrapbook</span>
+      <span>${escapeHtml(prettyDate)}</span>
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('bw-toggle').addEventListener('change', e => {
+      document.body.classList.toggle('bw', e.target.checked);
+    });
+  <\/script>
+</body>
+</html>`;
+
+  const w = window.open('', '_blank');
+  if (!w) {
+    alert('Pop-up blocked — please allow pop-ups to use Print.');
+    return;
+  }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+}
+
+/* =============================================================
+ * Scrapbook helpers — seeded PRNG + date palette
+ * ============================================================= */
+
+// FNV-1a string → uint32 seed
+function strSeed(s) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++)
+    h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0;
+  return h;
+}
+
+// mulberry32 — returns a () => [0,1) function seeded from a uint32
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// HSL palette seeded from a dateKey — deterministic per day
+function paletteFromDateKey(key) {
+  const h0 = strSeed(key) % 360;
+  const h1 = (h0 + 40)  % 360;
+  const h2 = (h0 + 200) % 360;
+  return {
+    border: `hsl(${h0}, 60%, 50%)`,
+    accent: `hsl(${h1}, 70%, 55%)`,
+    paper:  `hsl(${h0}, 30%, 96%)`,
+    tape:   `hsla(${h2}, 65%, 68%, 0.72)`,
+    tape2:  `hsla(${h1}, 55%, 72%, 0.70)`,
+  };
+}
+
+/* =============================================================
+ * Scrapbook popup
+ * ============================================================= */
+async function openScrapbook(dateKey, eventId) {
+  const ev = eventId ? await getEventById(eventId) : await getEvent(dateKey);
+  if (!ev) return;
+
+  // Load all images — blobs as data URLs, URL items as direct src references.
+  // Interleave by addedAt.
+  const images = [];
+  for (const id of (ev.imageIds || [])) {
+    const rec = await getImage(id);
+    if (rec) images.push({ id, dataUrl: await blobToDataURL(rec.blob), addedAt: rec.addedAt || 0 });
+  }
+  for (const entry of (ev.imageUrls || [])) {
+    images.push({ id: 'url_' + entry.url, srcUrl: entry.url, addedAt: entry.addedAt || 0 });
+  }
+  images.sort((a, b) => a.addedAt - b.addedAt);
+  // Re-index after sort so gallery opener gets the right slot
+  images.forEach((img, i) => { img.index = i; });
+
+  const [y, m, d] = dateKey.split('-').map(Number);
+  const monthIdx  = m - 1;
+  const theme     = MONTH_THEMES[monthIdx];
+  const palette   = paletteFromDateKey(dateKey);
+  const prettyDate = new Date(y, monthIdx, d).toLocaleDateString(undefined,
+    { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+  const title = ev.title       || '(untitled)';
+  const desc  = ev.description || '';
+  const emojis = (ev.emojis || []).slice(0, 20);
+
+  // ---- serialise image array for inline JS (data URLs already safe; srcUrls are plain strings) ----
+  const imagesJson = JSON.stringify(images.map((img, i) => ({
+    id: img.id, dataUrl: img.dataUrl || null, srcUrl: img.srcUrl || null, index: i
+  })));
+
+  const emojiJson = JSON.stringify(emojis);
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>📖 ${escapeHtml(title)} — ${escapeHtml(prettyDate)}</title>
+<style>
+  :root {
+    --border-col:  ${palette.border};
+    --accent-col:  ${palette.accent};
+    --paper-col:   ${palette.paper};
+    --tape-col:    ${palette.tape};
+    --tape2-col:   ${palette.tape2};
+    --header-grad: ${theme.grad};
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #e8e0d8;
+    color: #222;
+  }
+  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  /* ---- Toolbar (screen only) ---- */
+  .toolbar {
+    position: sticky; top: 0; z-index: 20;
+    background: #fff; border-bottom: 1px solid #ddd;
+    padding: 8px 16px;
+    display: flex; gap: 10px; align-items: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  }
+  .toolbar h1 { margin: 0; font-size: 0.95rem; flex: 1; color: #555; font-weight: 500; }
+  .toolbar button {
+    padding: 7px 13px; border-radius: 6px;
+    border: 1px solid #ccc; background: #fff; cursor: pointer; font: inherit;
+  }
+  .toolbar .primary { background: var(--accent-col); color: #fff; border-color: var(--accent-col); }
+
+  /* ---- Page sheet ---- */
+  .sheet {
+    max-width: 860px;
+    margin: 28px auto;
+    background: var(--paper-col);
+    border-radius: 4px;
+    box-shadow: 0 6px 32px rgba(0,0,0,0.22);
+    overflow: visible;
+    padding-bottom: 32px;
+    position: relative;
+  }
+
+  /* ---- Header band ---- */
+  .header-band {
+    background: var(--header-grad);
+    color: #fff;
+    padding: 18px 28px;
+    display: flex; justify-content: space-between; align-items: center;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.35);
+    border-radius: 4px 4px 0 0;
+  }
+  .header-band .left .date  { font-size: 0.9rem; opacity: 0.92; margin-bottom: 4px; }
+  .header-band .left .title { font-size: 1.9rem; font-weight: 700; margin: 0; }
+  .header-band .big-emoji   { font-size: 4rem; text-shadow: none; line-height: 1; }
+
+  /* ---- Emoji sticker strip ---- */
+  .sticker-strip {
+    display: flex; flex-wrap: wrap; gap: 2px;
+    padding: 10px 28px 0;
+    min-height: 0;
+  }
+  .sticker {
+    font-size: 1.9rem;
+    display: inline-block;
+    transform-origin: center bottom;
+    filter: drop-shadow(0 2px 3px rgba(0,0,0,0.18));
+  }
+
+  /* ---- Description card ---- */
+  .desc-card {
+    margin: 18px 40px 0;
+    background: #fffde7;
+    border-left: 4px solid var(--accent-col);
+    border-radius: 2px;
+    padding: 12px 16px;
+    font-style: italic;
+    font-size: 0.95rem;
+    line-height: 1.55;
+    color: #444;
+    box-shadow: 2px 3px 8px rgba(0,0,0,0.10);
+    position: relative;
+  }
+
+  /* ---- Collage area ---- */
+  .collage {
+    padding: 24px 28px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    justify-content: center;
+    align-items: flex-start;
+    position: relative;
+  }
+
+  /* ---- Individual photo tile ---- */
+  .photo-tile {
+    position: relative;
+    display: inline-block;
+    cursor: pointer;
+    margin: 14px;
+    flex: 0 0 auto;
+    transition: transform 0.15s, filter 0.15s;
+  }
+  .photo-tile:hover { filter: brightness(1.07); z-index: 10; }
+  .photo-tile img {
+    display: block;
+    max-width: 220px;
+    max-height: 180px;
+    width: auto; height: auto;
+  }
+
+  /* ---- Border style: polaroid ---- */
+  .style-polaroid {
+    background: #fff;
+    padding: 8px 8px 28px 8px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.28), 0 1px 3px rgba(0,0,0,0.15);
+  }
+  .style-polaroid .caption {
+    position: absolute;
+    bottom: 5px; left: 0; right: 0;
+    text-align: center;
+    font-size: 0.7rem;
+    color: #888;
+    font-style: italic;
+    font-family: 'Courier New', monospace;
+  }
+
+  /* ---- Border style: frame ---- */
+  .style-frame {
+    padding: 6px;
+    box-shadow: 0 0 0 3px var(--border-col), 0 4px 16px rgba(0,0,0,0.28);
+    background: var(--border-col);
+  }
+
+  /* ---- Border style: double frame ---- */
+  .style-double {
+    padding: 5px;
+    background: var(--paper-col);
+    box-shadow: 0 0 0 3px var(--border-col), 0 0 0 7px var(--accent-col), 0 4px 18px rgba(0,0,0,0.25);
+  }
+
+  /* ---- Washi tape strip overlays (injected by JS) ---- */
+  .tape-strip {
+    position: absolute;
+    pointer-events: none;
+    opacity: 0.82;
+    border-radius: 2px;
+    z-index: 5;
+  }
+
+  /* ---- SVG clip wrappers ---- */
+  .clip-wrap {
+    position: relative;
+    display: inline-block;
+    box-shadow: 2px 4px 14px rgba(0,0,0,0.30);
+  }
+  .clip-wrap img { display: block; }
+
+  /* ---- Empty state ---- */
+  .no-images {
+    padding: 40px 28px;
+    text-align: center;
+    color: #aaa;
+    font-style: italic;
+  }
+
+  @media print {
+    body { background: #fff; }
+    .toolbar { display: none; }
+    .sheet { margin: 0; max-width: 100%; box-shadow: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>📖 Scrapbook — ${escapeHtml(prettyDate)}</h1>
+  <button id="shuffle-btn">🎲 Shuffle</button>
+  <button onclick="window.close()">Close</button>
+  <button class="primary" onclick="window.print()">🖨 Print</button>
+</div>
+
+<div class="sheet">
+  <div class="header-band">
+    <div class="left">
+      <div class="date">${escapeHtml(prettyDate)}</div>
+      <h2 class="title">${escapeHtml(title)}</h2>
+    </div>
+    <span class="big-emoji">${theme.emoji}</span>
+  </div>
+
+  ${emojis.length > 0 ? `<div class="sticker-strip" id="sticker-strip"></div>` : ''}
+  ${desc ? `<div class="desc-card">${escapeHtml(desc)}</div>` : ''}
+
+  <div class="collage" id="collage">
+    ${images.length === 0 ? '<div class="no-images">(no photos for this day)</div>' : ''}
+  </div>
+</div>
+
+<script>
+/* ---- Data baked in at render time ---- */
+const IMAGES   = ${imagesJson};
+const DATE_KEY = ${JSON.stringify(dateKey)};
+const EVENT_ID = ${JSON.stringify(ev.id)};
+const EMOJIS   = ${emojiJson};
+const PALETTE  = ${JSON.stringify(palette)};
+
+/* ---- Seeded PRNG ---- */
+function strSeed(s) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++)
+    h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0;
+  return h;
+}
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/* ---- SVG helpers ---- */
+
+// Jagged torn-paper clip-path
+function tornPathD(w, h, rng, teeth) {
+  teeth = teeth || 10;
+  const jag = Math.min(w, h) * 0.07;
+  const pts = [];
+
+  // top edge — left to right
+  for (let i = 0; i <= teeth; i++) {
+    const x = (w / teeth) * i;
+    const y = i === 0 || i === teeth ? 0 : (rng() - 0.5) * jag;
+    pts.push([x, y]);
+  }
+  // right edge — top to bottom
+  for (let i = 1; i <= teeth; i++) {
+    const y = (h / teeth) * i;
+    const x = i === teeth ? w : w + (rng() - 0.5) * jag;
+    pts.push([x, y]);
+  }
+  // bottom edge — right to left
+  for (let i = teeth - 1; i >= 0; i--) {
+    const x = (w / teeth) * i;
+    const y = i === 0 ? h : h + (rng() - 0.5) * jag;
+    pts.push([x, y]);
+  }
+  // left edge — bottom to top
+  for (let i = teeth - 1; i >= 1; i--) {
+    const y = (h / teeth) * i;
+    const x = (rng() - 0.5) * jag;
+    pts.push([x, y]);
+  }
+  pts.push(pts[0]);
+  return 'M ' + pts.map(([x, y]) => x.toFixed(1) + ',' + y.toFixed(1)).join(' L ') + ' Z';
+}
+
+// Scalloped clip-path
+function scallopPathD(w, h, rng) {
+  const r = Math.min(w, h) * 0.055 + rng() * 3;
+  const pts = [];
+  function scallop(x0, y0, x1, y1, n, nx, ny) {
+    for (let i = 0; i < n; i++) {
+      const t0 = i / n, t1 = (i + 0.5) / n, t2 = (i + 1) / n;
+      const px = x0 + (x1 - x0) * t0, py = y0 + (y1 - y0) * t0;
+      const cx = x0 + (x1 - x0) * t1 + nx * r, cy = y0 + (y1 - y0) * t1 + ny * r;
+      const qx = x0 + (x1 - x0) * t2, qy = y0 + (y1 - y0) * t2;
+      pts.push(\`L \${px.toFixed(1)},\${py.toFixed(1)} Q \${cx.toFixed(1)},\${cy.toFixed(1)} \${qx.toFixed(1)},\${qy.toFixed(1)}\`);
+    }
+  }
+  const nT = Math.max(3, Math.round(w / (r * 2.2)));
+  const nS = Math.max(3, Math.round(h / (r * 2.2)));
+  pts.push(\`M 0,0\`);
+  scallop(0, 0, w, 0, nT, 0, -1);
+  scallop(w, 0, w, h, nS, 1, 0);
+  scallop(w, h, 0, h, nT, 0, 1);
+  scallop(0, h, 0, 0, nS, -1, 0);
+  return pts.join(' ') + ' Z';
+}
+
+// Deckle-edge wavy clip-path
+function decklePathD(w, h, rng) {
+  const amp  = Math.min(w, h) * 0.06;
+  const freq = 6 + Math.floor(rng() * 4);
+  function wavePts(x0, y0, x1, y1, n, nx, ny, rev) {
+    const out = [];
+    for (let i = rev ? n : 0; rev ? i >= 0 : i <= n; rev ? i-- : i++) {
+      const t  = i / n;
+      const bx = x0 + (x1 - x0) * t;
+      const by = y0 + (y1 - y0) * t;
+      const wave = Math.sin(t * Math.PI * freq) * amp;
+      out.push(\`\${(bx + nx * wave).toFixed(1)},\${(by + ny * wave).toFixed(1)}\`);
+    }
+    return out;
+  }
+  const top    = wavePts(0, 0, w, 0,   freq * 2, 0,  1, false);
+  const right  = wavePts(w, 0, w, h,   freq * 2, 1,  0, false);
+  const bottom = wavePts(0, h, w, h,   freq * 2, 0, -1, true);
+  const left   = wavePts(0, 0, 0, h,   freq * 2, -1, 0, true);
+  return 'M ' + top.join(' L ') + ' L ' + right.join(' L ') +
+         ' L ' + bottom.join(' L ') + ' L ' + left.join(' L ') + ' Z';
+}
+
+/* ---- Washi tape strips ---- */
+function addWashiTape(container, imgW, imgH, rng) {
+  const colors = [PALETTE.tape, PALETTE.tape2];
+  const count  = 2 + Math.floor(rng() * 2); // 2 or 3
+  for (let i = 0; i < count; i++) {
+    const tape = document.createElement('div');
+    tape.className = 'tape-strip';
+    const color = colors[Math.floor(rng() * colors.length)];
+    // Tape across a corner/edge — random position and angle
+    const isHoriz = rng() > 0.4;
+    const tapeW   = isHoriz ? 50 + rng() * 40 : 10 + rng() * 6;
+    const tapeH   = isHoriz ? 10 + rng() * 6  : 50 + rng() * 40;
+    const rot     = (rng() - 0.5) * 40;  // ±20deg
+    // Position near corners
+    const corners = [
+      { top: -tapeH/2,           left: imgW * 0.1 + rng() * imgW * 0.3 },
+      { top: imgH - tapeH/2,     left: imgW * 0.1 + rng() * imgW * 0.3 },
+      { top: imgH * 0.1,         left: -tapeW/2 },
+      { top: imgH * 0.1,         left: imgW - tapeW/2 },
+    ];
+    const corner = corners[Math.floor(rng() * corners.length)];
+    Object.assign(tape.style, {
+      background: color,
+      width:  tapeW + 'px',
+      height: tapeH + 'px',
+      top:    corner.top  + 'px',
+      left:   corner.left + 'px',
+      transform: \`rotate(\${rot}deg)\`,
+    });
+    container.appendChild(tape);
+  }
+}
+
+/* ---- Build tile for one image ---- */
+function buildTile(img, shuffleNonce) {
+  const seed = strSeed(img.id + DATE_KEY + String(shuffleNonce));
+  const rng  = mulberry32(seed);
+
+  // Rotation and offset
+  const rot    = (rng() - 0.5) * 8;   // ±4deg
+  const tx     = (rng() - 0.5) * 16;
+  const ty     = (rng() - 0.5) * 16;
+
+  const styleChoice = Math.floor(rng() * 5);
+  // 0 torn, 1 scallop, 2 deckle, 3 polaroid, 4 frame/double
+
+  const tile = document.createElement('div');
+  tile.className = 'photo-tile';
+  tile.title = 'Click to view full size';
+  tile.style.transform = \`rotate(\${rot.toFixed(2)}deg) translate(\${tx.toFixed(1)}px, \${ty.toFixed(1)}px)\`;
+  tile.style.zIndex = Math.floor(rng() * 5);
+
+  const image = new Image();
+  image.src = img.dataUrl || img.srcUrl || '';
+  image.style.maxWidth  = '220px';
+  image.style.maxHeight = '180px';
+  image.style.display   = 'block';
+
+  // For URL-backed items, replace the broken image with an emoji tile
+  // that still gets decorated (washi tape etc.) so the layout stays intact.
+  let brokenTileInserted = false;
+  if (!img.dataUrl && img.srcUrl) {
+    image.onerror = () => {
+      if (brokenTileInserted) return;
+      brokenTileInserted = true;
+      const fb = document.createElement('div');
+      fb.style.cssText =
+        'width:160px;height:120px;display:flex;align-items:center;' +
+        'justify-content:center;font-size:4rem;background:#f3f3f3;' +
+        'border-radius:4px;border:1px dashed #ccc;';
+      fb.textContent = '🖼️';
+      image.replaceWith(fb);
+    };
+  }
+
+  if (styleChoice === 3) {
+    // ---- Polaroid ----
+    tile.classList.add('style-polaroid');
+    tile.appendChild(image);
+    const cap = document.createElement('div');
+    cap.className = 'caption';
+    cap.textContent = DATE_KEY;
+    tile.appendChild(cap);
+    addWashiTape(tile, 220, 220, rng);
+
+  } else if (styleChoice === 4) {
+    // ---- Solid frame or double frame ----
+    const isDouble = rng() > 0.5;
+    tile.classList.add(isDouble ? 'style-double' : 'style-frame');
+    tile.appendChild(image);
+    addWashiTape(tile, 220, 200, rng);
+
+  } else {
+    // ---- SVG clip-path styles: torn (0), scallop (1), deckle (2) ----
+    const wrap = document.createElement('div');
+    wrap.className = 'clip-wrap';
+
+    // We need actual image dimensions after load to generate the SVG path
+    const svgId = 'clip-' + Math.random().toString(36).slice(2);
+
+    image.onload = () => {
+      const iw = image.naturalWidth;
+      const ih = image.naturalHeight;
+      // Constrain to max display size, keep aspect
+      const scale = Math.min(220 / iw, 180 / ih, 1);
+      const dw = Math.round(iw * scale);
+      const dh = Math.round(ih * scale);
+      image.style.width  = dw + 'px';
+      image.style.height = dh + 'px';
+      wrap.style.width   = dw + 'px';
+      wrap.style.height  = dh + 'px';
+
+      let pathD;
+      if (styleChoice === 0) pathD = tornPathD(dw, dh, rng, 12);
+      else if (styleChoice === 1) pathD = scallopPathD(dw, dh, rng);
+      else pathD = decklePathD(dw, dh, rng);
+
+      // Inject inline SVG with clipPath
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('width', '0'); svg.setAttribute('height', '0');
+      svg.style.position = 'absolute';
+      const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+      const clip = document.createElementNS('http://www.w3.org/2000/svg', 'clipPath');
+      clip.setAttribute('id', svgId);
+      clip.setAttribute('clipPathUnits', 'userSpaceOnUse');
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', pathD);
+      clip.appendChild(path);
+      defs.appendChild(clip);
+      svg.appendChild(defs);
+      wrap.insertBefore(svg, wrap.firstChild);
+      image.style.clipPath = \`url(#\${svgId})\`;
+
+      // Coloured border ring echoing the clip shape using a second SVG overlay
+      const border = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      border.setAttribute('width', dw); border.setAttribute('height', dh);
+      border.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;';
+      const bPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      bPath.setAttribute('d', pathD);
+      bPath.setAttribute('fill', 'none');
+      bPath.setAttribute('stroke', PALETTE.border);
+      bPath.setAttribute('stroke-width', '3');
+      bPath.setAttribute('opacity', '0.85');
+      border.appendChild(bPath);
+      wrap.appendChild(border);
+
+      addWashiTape(tile, dw, dh, rng);
+    };
+
+    wrap.appendChild(image);
+    tile.appendChild(wrap);
+  }
+
+  // Click → open gallery in main window at this index
+  tile.addEventListener('click', () => {
+    if (window.opener && !window.opener.closed) {
+      window.opener.openGallery(DATE_KEY, EVENT_ID, img.index);
+      window.opener.focus();
+    }
+  });
+
+  return tile;
+}
+
+/* ---- Sticker strip ---- */
+function renderStickers() {
+  const strip = document.getElementById('sticker-strip');
+  if (!strip) return;
+  strip.innerHTML = '';
+  const seed = strSeed(DATE_KEY + 'stickers');
+  const rng  = mulberry32(seed);
+  EMOJIS.forEach(em => {
+    const s = document.createElement('span');
+    s.className = 'sticker';
+    s.textContent = em;
+    const rot = (rng() - 0.5) * 24;
+    const dy  = (rng() - 0.5) * 8;
+    s.style.transform = \`rotate(\${rot.toFixed(1)}deg) translateY(\${dy.toFixed(1)}px)\`;
+    strip.appendChild(s);
+  });
+}
+
+/* ---- Main render ---- */
+let shuffleNonce = 0;
+function renderCollage() {
+  const collage = document.getElementById('collage');
+  collage.innerHTML = '';
+  if (IMAGES.length === 0) {
+    collage.innerHTML = '<div class="no-images">(no photos for this day)</div>';
+    return;
+  }
+  for (const img of IMAGES) {
+    collage.appendChild(buildTile(img, shuffleNonce));
+  }
+}
+
+document.getElementById('shuffle-btn').onclick = () => {
+  shuffleNonce++;
+  renderCollage();
+};
+
+renderStickers();
+renderCollage();
+<\/script>
+</body>
+</html>`;
+
+  const w = window.open('', '_blank', 'width=920,height=800,resizable=yes,scrollbars=yes');
+  if (!w) {
+    alert('Pop-up blocked — please allow pop-ups to use Scrapbook.');
+    return;
+  }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+}
+
+/* =============================================================
+ * Toast
+ * ============================================================= */
+let toastTimer = null;
+let pendingFinalize = null;
+function finalizePending() {
+  if (pendingFinalize) { try { pendingFinalize(); } catch{} pendingFinalize = null; }
+}
+function showToast(msg, undoFn) {
+  finalizePending();
+  const root = document.getElementById('toast-root');
+  root.innerHTML = '';
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.innerHTML = `<span>${escapeHtml(msg)}</span><button>Undo</button>`;
+  root.appendChild(t);
+  const dismiss = () => {
+    if (t.parentNode) t.parentNode.removeChild(t);
+    pendingFinalize = null;
+    clearTimeout(toastTimer);
+    toastTimer = null;
+  };
+  pendingFinalize = dismiss;
+  t.querySelector('button').onclick = async () => {
+    clearTimeout(toastTimer);
+    pendingFinalize = null;
+    dismiss();
+    await undoFn();
+  };
+  toastTimer = setTimeout(dismiss, 6000);
+}
+window.addEventListener('beforeunload', finalizePending);
+
+/* =============================================================
+ * Navigation
+ * ============================================================= */
+function prevMonth() { if (--state.month < 0) { state.month = 11; state.year--; } renderCalendar(); }
+function nextMonth() { if (++state.month > 11) { state.month = 0;  state.year++; } renderCalendar(); }
+function prevYear()  { state.year--; renderCalendar(); }
+function nextYear()  { state.year++; renderCalendar(); }
+function goToday()   {
+  const d = new Date();
+  state.year = d.getFullYear();
+  state.month = d.getMonth();
+  renderCalendar();
+}
+
+document.getElementById('prevMonth').onclick = prevMonth;
+document.getElementById('nextMonth').onclick = nextMonth;
+document.getElementById('prevYear').onclick  = prevYear;
+document.getElementById('nextYear').onclick  = nextYear;
+document.getElementById('todayBtn').onclick  = goToday;
+
+document.addEventListener('keydown', e => {
+  // Allow normal text input in modal
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea') return;
+  if (state._galleryHandler) {
+    state._galleryHandler(e);
+    return;
+  }
+  if (state.modalOpen) {
+    if (e.key === 'Escape') {
+      document.getElementById('modal-root').innerHTML = '';
+      state.modalOpen = false;
+    }
+    return;
+  }
+  if (e.key === 'ArrowLeft')  prevMonth();
+  if (e.key === 'ArrowRight') nextMonth();
+  if (e.key === 'ArrowUp')    prevYear();
+  if (e.key === 'ArrowDown')  nextYear();
+  if (e.key === 't' || e.key === 'T') goToday();
+});
+
+/* =============================================================
+ * Util
+ * ============================================================= */
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
+}
+
+/* =============================================================
+ * ICS export / import (RFC 5545, all-day events, inline image ATTACH)
+ * ============================================================= */
+
+// Fold long lines per RFC 5545: 75 octets, continuation lines start with a single space.
+function icsFold(line) {
+  const enc = new TextEncoder();
+  const bytes = enc.encode(line);
+  if (bytes.length <= 75) return line;
+  // Walk the string by codepoint to avoid splitting multi-byte chars across folds.
+  const out = [];
+  let buf = '';
+  let bufBytes = 0;
+  let first = true;
+  for (const ch of line) {
+    const chBytes = enc.encode(ch).length;
+    const limit = first ? 75 : 74; // continuation lines have a leading space
+    if (bufBytes + chBytes > limit) {
+      out.push((first ? '' : ' ') + buf);
+      first = false;
+      buf = ch;
+      bufBytes = chBytes;
+    } else {
+      buf += ch;
+      bufBytes += chBytes;
+    }
+  }
+  if (buf) out.push((first ? '' : ' ') + buf);
+  return out.join('\r\n');
+}
+
+// Escape per RFC 5545 §3.3.11 for TEXT values.
+function icsEscape(s) {
+  return String(s == null ? '' : s)
+    .replace(/\\/g, '\\\\')
+    .replace(/\r\n|\r|\n/g, '\\n')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;');
+}
+
+function icsUnescape(s) {
+  return String(s == null ? '' : s)
+    .replace(/\\n/gi, '\n')
+    .replace(/\\,/g, ',')
+    .replace(/\\;/g, ';')
+    .replace(/\\\\/g, '\\');
+}
+
+function icsDateOnly(dateKey) {
+  // YYYY-MM-DD -> YYYYMMDD
+  return dateKey.replace(/-/g, '');
+}
+
+function icsAddDays(dateKey, days) {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
+function icsNowStamp() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}${pad(d.getUTCMonth()+1)}${pad(d.getUTCDate())}T` +
+         `${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
+}
+
+function blobToBase64(blob) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const s = String(r.result);
+      const i = s.indexOf(',');
+      res(i >= 0 ? s.slice(i + 1) : s);
+    };
+    r.onerror = () => rej(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+function base64ToBlob(b64, mime) {
+  const clean = String(b64).replace(/\s+/g, '');
+  const bin = atob(clean);
+  const len = bin.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime || 'application/octet-stream' });
+}
+
+async function imageDimensions(blob) {
+  try {
+    const bmp = await createImageBitmap(blob);
+    const out = { width: bmp.width, height: bmp.height };
+    bmp.close && bmp.close();
+    return out;
+  } catch {
+    return { width: 0, height: 0 };
+  }
+}
+
+const SCRAPBOOK_BASE_URL = 'https://www.k5f2.org/emojics-cal/';
+
+function scrapbookUrlFor(dateKey) {
+  return `${SCRAPBOOK_BASE_URL}?scrapbook=${encodeURIComponent(dateKey)}`;
+}
+
+async function buildIcsEvent(ev) {
+  // NOTE: ev.emojis is intentionally NOT serialized here. Day-tag emojis are a
+  // local-only annotation stored alongside the event in IndexedDB; they must
+  // not leak into .ics output (export, upload, or download).
+  // UID is keyed by event id so multiple events per day don't collide.
+  const uid = `scrapbook-${ev.id || ev.dateKey}@local`;
+  const dtstart = icsDateOnly(ev.dateKey);
+  const dtend = icsDateOnly(icsAddDays(ev.dateKey, 1)); // exclusive end per RFC
+  const summary = ev.title || '(untitled)';
+  const url = scrapbookUrlFor(ev.dateKey);
+  // Most calendar apps ignore inline ATTACH images, so we also include a
+  // clickable link back to the live scrapbook page in both URL and DESCRIPTION.
+  const descParts = [];
+  if (ev.description) descParts.push(ev.description);
+  descParts.push(`View scrapbook: ${url}`);
+  const desc = descParts.join('\n\n');
+  const lines = [
+    'BEGIN:VEVENT',
+    `UID:${uid}`,
+    `DTSTAMP:${icsNowStamp()}`,
+    `DTSTART;VALUE=DATE:${dtstart}`,
+    `DTEND;VALUE=DATE:${dtend}`,
+    `SUMMARY:${icsEscape(summary)}`,
+    `URL:${url}`,
+    `DESCRIPTION:${icsEscape(desc)}`,
+  ];
+
+  // Inline image attachment (RFC 5545 §3.8.1.1) — first image only.
+  // Calendar clients rarely render multiple inline images, and big payloads
+  // can break email delivery. The full gallery lives at the scrapbook URL.
+  const firstId = (ev.imageIds || [])[0];
+  if (firstId) {
+    try {
+      const rec = await getImage(firstId);
+      if (rec && rec.blob) {
+        const b64 = await blobToBase64(rec.blob);
+        const mime = rec.mime || rec.blob.type || 'application/octet-stream';
+        lines.push(`ATTACH;FMTTYPE=${mime};ENCODING=BASE64;VALUE=BINARY:${b64}`);
+      }
+    } catch (err) {
+      console.warn('Skipping image attachment', firstId, err);
+    }
+  }
+
+  // URI-form attachments for URL-backed images (RFC 5545 §3.8.1.1)
+  for (const entry of (ev.imageUrls || [])) {
+    lines.push(`ATTACH;VALUE=URI:${entry.url}`);
+  }
+
+  lines.push('END:VEVENT');
+  return lines.map(icsFold).join('\r\n');
+}
+
+async function buildIcsCalendar(events) {
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//CalendarScrapbook//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+  ];
+  const out = [lines.map(icsFold).join('\r\n')];
+  for (const ev of events) out.push(await buildIcsEvent(ev));
+  out.push('END:VCALENDAR');
+  return out.join('\r\n') + '\r\n';
+}
+
+function downloadFile(name, mime, content) {
+  const blob = (content instanceof Blob) ? content : new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function exportEventToIcs(eventId) {
+  const ev = await getEventById(eventId);
+  if (!ev) return;
+  const ics = await buildIcsCalendar([ev]);
+  const safeTitle = (ev.title || 'event').replace(/[^a-z0-9-_]+/gi, '_').slice(0, 40);
+  downloadFile(`scrapbook-${ev.dateKey}-${safeTitle}.ics`, 'text/calendar', ics);
+}
+
+async function emailEventIcs(eventId) {
+  const ev = await getEventById(eventId);
+  if (!ev) return;
+  const ics = await buildIcsCalendar([ev]);
+  const safeTitle = (ev.title || 'event').replace(/[^a-z0-9-_]+/gi, '_').slice(0, 40);
+  const filename = `scrapbook-${ev.dateKey}-${safeTitle}.ics`;
+  const subject = encodeURIComponent(`📅 Calendar event: ${ev.title || ev.dateKey}`);
+
+  // Silently push to the server so the scrapbook deep-link URL in the email
+  // can auto-import on the recipient's device. Failures here are non-fatal:
+  // worst case the URL just won't find the .ics and the recipient still has
+  // the attachment from Web Share / mailto.
+  try {
+    await uploadEventToServerSilent(eventId, ics);
+  } catch (err) {
+    console.warn('Server upload failed (continuing with email):', err);
+  }
+
+  // Try Web Share API first (works on mobile and some desktop browsers)
+  if (navigator.canShare) {
+    const file = new File([ics], filename, { type: 'text/calendar' });
+    if (navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: ev.title || ev.dateKey });
+        return;
+      } catch (e) {
+        if (e.name === 'AbortError') return; // user cancelled — do nothing
+        // fall through to mailto fallback
+      }
+    }
+  }
+
+  // Fallback: download the file then open mailto so the user can attach it manually
+  downloadFile(filename, 'text/calendar', ics);
+  const scrapbookUrl = scrapbookUrlFor(ev.dateKey);
+  const body = encodeURIComponent(
+    `Hi,\n\nPlease find the calendar event attached as "${filename}".\n\n` +
+    `View the full scrapbook (with all images) here:\n${scrapbookUrl}\n\n` +
+    `(Attach the .ics file that was just downloaded to your Downloads folder.)`
+  );
+  window.location.href = `mailto:?subject=${subject}&body=${body}`;
+}
+
+/* ---- Server CGI integration for .ics files ---- */
+const ICS_CGI_LIST = 'ics-list.cgi';
+const ICS_CGI_PUT  = 'ics-put.cgi';
+const ICS_CGI_GET  = 'ics-get.cgi';
+
+function icsServerFilename(ev) {
+  const safe = (ev.title || 'event').replace(/[^a-z0-9-_]+/gi, '_').slice(0, 40)
+    || 'event';
+  // Include a short slice of the id so multiple events on the same date
+  // get distinct filenames and don't overwrite each other.
+  const idSlug = (ev.id || ev.dateKey).replace(/[^a-z0-9]/gi, '').slice(0, 8);
+  return `scrapbook-${ev.dateKey}-${idSlug}-${safe}.ics`;
+}
+
+async function uploadEventToServerSilent(eventId, prebuiltIcs) {
+  // Internal helper used by emailEventIcs(): no toast, no alert.
+  // Pass prebuiltIcs to avoid rebuilding the calendar string.
+  const ev = await getEventById(eventId);
+  if (!ev) return;
+  const ics = prebuiltIcs || await buildIcsCalendar([ev]);
+  const name = icsServerFilename(ev);
+  const res = await fetch(`${ICS_CGI_PUT}?name=${encodeURIComponent(name)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'text/calendar; charset=utf-8' },
+    body: ics,
+  });
+  if (!res.ok) throw new Error(`Server returned ${res.status}`);
+}
+
+async function uploadEventToServer(eventId) {
+  const ev = await getEventById(eventId);
+  if (!ev) return;
+  const ics = await buildIcsCalendar([ev]);
+  const name = icsServerFilename(ev);
+  try {
+    const res = await fetch(`${ICS_CGI_PUT}?name=${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'text/calendar; charset=utf-8' },
+      body: ics,
+    });
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const data = await res.json().catch(() => ({}));
+    showToast(`Uploaded: ${data.name || name}`, () => {});
+  } catch (err) {
+    console.error(err);
+    alert(`Upload failed: ${err.message}\n\nMake sure the page is served via Apache and CGI is enabled for cgi-bin/.`);
+  }
+}
+
+async function listServerIcsFiles() {
+  const res = await fetch(ICS_CGI_LIST, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`List failed: ${res.status}`);
+  return res.json();
+}
+
+async function fetchServerIcsFile(name) {
+  const res = await fetch(`${ICS_CGI_GET}?name=${encodeURIComponent(name)}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+  return res.text();
+}
+
+
+/* ---- ICS parser ----
+ * Minimal RFC 5545 parser: unfolds continuation lines, handles VEVENTs only,
+ * understands DTSTART (date or date-time), SUMMARY, DESCRIPTION, UID.
+ */
+function parseIcs(text) {
+  // Normalize line endings; unfold continuation lines (line starting with space/tab).
+  const raw = text.replace(/\r\n?/g, '\n').split('\n');
+  const lines = [];
+  for (const ln of raw) {
+    if (ln.length && (ln[0] === ' ' || ln[0] === '\t') && lines.length) {
+      lines[lines.length - 1] += ln.slice(1);
+    } else {
+      lines.push(ln);
+    }
+  }
+
+  const events = [];
+  let cur = null;
+  for (const line of lines) {
+    if (!line) continue;
+    if (line === 'BEGIN:VEVENT') { cur = { attachments: [] }; continue; }
+    if (line === 'END:VEVENT')   { if (cur) events.push(cur); cur = null; continue; }
+    if (!cur) continue;
+    // Split "PROP;params:value"
+    const colon = line.indexOf(':');
+    if (colon < 0) continue;
+    const left = line.slice(0, colon);
+    const value = line.slice(colon + 1);
+    const semi = left.indexOf(';');
+    const prop = (semi < 0 ? left : left.slice(0, semi)).toUpperCase();
+    const params = {};
+    if (semi >= 0) {
+      for (const part of left.slice(semi + 1).split(';')) {
+        const eq = part.indexOf('=');
+        if (eq > 0) {
+          // Preserve original-case param values (FMTTYPE needs its case for MIME).
+          params[part.slice(0, eq).toUpperCase()] = part.slice(eq + 1);
+        }
+      }
+    }
+    switch (prop) {
+      case 'UID':         cur.uid = value; break;
+      case 'SUMMARY':     cur.summary = icsUnescape(value); break;
+      case 'DESCRIPTION': cur.description = icsUnescape(value); break;
+      case 'DTSTART':     cur.dtstart = { value, params }; break;
+      case 'ATTACH': {
+        const enc = (params.ENCODING || '').toUpperCase();
+        const valType = (params.VALUE || '').toUpperCase();
+        if (enc === 'BASE64' && valType === 'BINARY') {
+          try {
+            const mime = params.FMTTYPE || 'application/octet-stream';
+            const blob = base64ToBlob(value, mime);
+            cur.attachments.push({ blob, mime });
+          } catch (err) {
+            console.warn('Bad ATTACH payload, skipping', err);
+          }
+        } else if (valType === 'URI' || (!enc && normalizeImageUrl(value))) {
+          // URI-form ATTACH — store as an imageUrl entry
+          const url = normalizeImageUrl(value);
+          if (url) {
+            if (!cur.imageUrls) cur.imageUrls = [];
+            cur.imageUrls.push(url);
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  // Convert to scrapbook events keyed by dateKey
+  const out = [];
+  for (const e of events) {
+    if (!e.dtstart) continue;
+    const v = e.dtstart.value;
+    let dateKey = null;
+    if (/^\d{8}$/.test(v)) {
+      dateKey = `${v.slice(0,4)}-${v.slice(4,6)}-${v.slice(6,8)}`;
+    } else if (/^\d{8}T\d{6}/.test(v)) {
+      // Date-time form; take the date portion (ignore TZ for scrapbook all-day model).
+      dateKey = `${v.slice(0,4)}-${v.slice(4,6)}-${v.slice(6,8)}`;
+    } else {
+      continue;
+    }
+    out.push({
+      uid:          e.uid || null,
+      dateKey,
+      title: e.summary || '',
+      description: stripScrapbookPhotoNote(e.description || ''),
+      imageIds: [],
+      attachments: e.attachments || [],
+      importedUrls: (e.imageUrls || []),
+    });
+  }
+  // De-dup within the file: last one wins per uid (fall back to dateKey when no uid)
+  const map = new Map();
+  for (const e of out) map.set(e.uid || e.dateKey, e);
+  return [...map.values()];
+}
+
+// Strip the auto-appended "(N photos in scrapbook)" note we add on export, so
+// round-trip imports don't accumulate it.
+function stripScrapbookPhotoNote(s) {
+  return s
+    .replace(/\n*\(\d+ photos? in scrapbook\)\s*$/i, '')
+    .trimEnd();
+}
+
+async function importIcsText(text, sourceLabel) {
+  const incoming = parseIcs(text);
+  if (incoming.length === 0) {
+    alert(`No events found in ${sourceLabel || 'this file'}.`);
+    return;
+  }
+
+  /*
+   * Conflict detection: an incoming VEVENT conflicts with an existing record
+   * when its UID matches an existing event's id pattern `scrapbook-<id>@local`.
+   * Fall back to dateKey matching for legacy UIDs (v1 format: scrapbook-YYYY-MM-DD@local).
+   */
+  async function findExistingByUid(incoming) {
+    if (incoming.uid) {
+      // Our own UIDs: scrapbook-<eventId>@local
+      const m = incoming.uid.match(/^scrapbook-(.+)@local$/);
+      if (m) {
+        const candidate = await getEventById(m[1]);
+        if (candidate) return candidate;
+      }
+    }
+    // Fall back: check if any personal event already exists on this date with this title
+    const evs = await getEventsForDate(incoming.dateKey);
+    return evs.find(e => e.category === 'personal' && e.title === incoming.title) || null;
+  }
+
+  const conflicts = [];
+  for (const ev of incoming) {
+    const existing = await findExistingByUid(ev);
+    if (existing) conflicts.push({ incoming: ev, existing });
+  }
+  const mode = await askImportMode(incoming.length, conflicts.length);
+  if (!mode) return; // cancelled
+
+  let added = 0, replaced = 0, skipped = 0, imagesAdded = 0;
+
+  // Convert a list of plain URL strings (from ICS import) into imageUrl objects
+  function urlStringsToEntries(urls) {
+    const now = Date.now();
+    return (urls || []).map((url, i) => ({ url, addedAt: now + i }));
+  }
+
+  async function installAttachments(dateKey, attachments) {
+    const ids = [];
+    for (const att of (attachments || [])) {
+      try {
+        const { width, height } = await imageDimensions(att.blob);
+        const rec = await addImage(dateKey, att.blob, att.mime, width, height);
+        ids.push(rec.id);
+        imagesAdded++;
+      } catch (err) {
+        console.warn('Failed to install attachment', err);
+      }
+    }
+    return ids;
+  }
+
+  for (const ev of incoming) {
+    const existing = await findExistingByUid(ev);
+    if (existing) {
+      if (mode === 'skip' || mode === 'merge')  { skipped++; continue; }
+      // overwrite: replace title/description AND replace images with the .ics ones
+      for (const oldId of (existing.imageIds || [])) {
+        try { await deleteImage(oldId); } catch {}
+      }
+      const newIds = await installAttachments(ev.dateKey, ev.attachments);
+      const merged = {
+        ...existing,
+        title: ev.title || existing.title,
+        description: ev.description || existing.description,
+        imageIds: newIds,
+        imageUrls: urlStringsToEntries(ev.importedUrls),
+      };
+      await putEvent(merged);
+      replaced++;
+    } else {
+      // New event: write first so addImage records have a stable parent, then attach.
+      const fresh = {
+        dateKey:     ev.dateKey,
+        category:    'personal',
+        readOnly:    false,
+        source:      sourceLabel || null,
+        title:       ev.title,
+        description: ev.description,
+        imageIds:    [],
+        imageUrls:   urlStringsToEntries(ev.importedUrls),
+      };
+      await putEvent(fresh);
+      const newIds = await installAttachments(ev.dateKey, ev.attachments);
+      if (newIds.length > 0) {
+        fresh.imageIds = newIds;
+        await putEvent(fresh);
+      }
+      added++;
+    }
+  }
+  await renderCalendar();
+  const imgNote = imagesAdded > 0 ? ` (${imagesAdded} image${imagesAdded === 1 ? '' : 's'})` : '';
+  showToast(`Imported: ${added} added, ${replaced} replaced, ${skipped} skipped${imgNote}`, () => {});
+}
+
+async function openServerIcsBrowser() {
+  let files;
+  try {
+    files = await listServerIcsFiles();
+  } catch (err) {
+    alert(`Could not list server .ics files: ${err.message}\n\n` +
+          `Make sure the page is served via Apache and ics-list.cgi is executable.`);
+    return;
+  }
+  // Sort newest first
+  files.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+
+  const root = document.getElementById('modal-root');
+  state.modalOpen = true;
+  const fmtSize = b => b < 1024 ? `${b} B` : `${(b/1024).toFixed(1)} KB`;
+  const fmtTime = ts => new Date(ts * 1000).toLocaleString();
+  const rows = files.length === 0
+    ? '<p style="color:#999;font-style:italic;">No .ics files on the server yet. Upload one from an event modal first.</p>'
+    : `<table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+         <thead><tr style="text-align:left; border-bottom:1px solid #ddd;">
+           <th style="padding:6px;"><input type="checkbox" id="ics-all" /></th>
+           <th style="padding:6px;">Filename</th>
+           <th style="padding:6px;">Size</th>
+           <th style="padding:6px;">Modified</th>
+         </tr></thead>
+         <tbody>
+         ${files.map(f => `
+           <tr style="border-bottom:1px solid #f0f0f0;">
+             <td style="padding:6px;"><input type="checkbox" class="ics-pick" value="${escapeHtml(f.name)}" /></td>
+             <td style="padding:6px;font-family:monospace;">${escapeHtml(f.name)}</td>
+             <td style="padding:6px;color:#666;">${fmtSize(f.size)}</td>
+             <td style="padding:6px;color:#666;">${fmtTime(f.mtime)}</td>
+           </tr>
+         `).join('')}
+         </tbody>
+       </table>`;
+
+  root.innerHTML = `
+    <div class="modal-backdrop" id="ics-srv-backdrop">
+      <div class="modal" style="max-width:640px;">
+        <h2>Import from server</h2>
+        <p style="font-size:0.85rem; color:#666;">Files in <code>.ics/</code></p>
+        ${rows}
+        <div class="modal-actions">
+          <button class="btn" id="ics-srv-cancel">Cancel</button>
+          <button class="btn btn-primary" id="ics-srv-import" ${files.length === 0 ? 'disabled' : ''}>Import Selected</button>
+        </div>
+      </div>
+    </div>
+  `;
+  const close = () => { root.innerHTML = ''; state.modalOpen = false; };
+  document.getElementById('ics-srv-cancel').onclick = close;
+  document.getElementById('ics-srv-backdrop').addEventListener('click', e => {
+    if (e.target.id === 'ics-srv-backdrop') close();
+  });
+  const allCb = document.getElementById('ics-all');
+  if (allCb) {
+    allCb.onchange = () => {
+      root.querySelectorAll('.ics-pick').forEach(cb => { cb.checked = allCb.checked; });
+    };
+  }
+  const importBtn = document.getElementById('ics-srv-import');
+  if (importBtn) importBtn.onclick = async () => {
+    const picks = [...root.querySelectorAll('.ics-pick:checked')].map(cb => cb.value);
+    if (picks.length === 0) {
+      alert('Please select at least one file.');
+      return;
+    }
+    close();
+    // Concatenate the .ics text bodies — parseIcs handles multiple VEVENTs anywhere.
+    let combined = '';
+    for (const name of picks) {
+      try {
+        const txt = await fetchServerIcsFile(name);
+        combined += txt + '\n';
+      } catch (err) {
+        console.error(`Failed to fetch ${name}:`, err);
+      }
+    }
+    if (combined) await importIcsText(combined, `${picks.length} server file(s)`);
+  };
+}
+
+function askImportMode(totalCount, conflictCount) {
+  return new Promise(resolve => {
+    const root = document.getElementById('modal-root');
+    const conflictMsg = conflictCount > 0
+      ? `<p style="color:#c62828;"><strong>${conflictCount}</strong> of these conflict with existing events on the same date.</p>`
+      : '<p style="color:#2e7d32;">No conflicts with existing events.</p>';
+    root.innerHTML = `
+      <div class="modal-backdrop" id="ics-backdrop">
+        <div class="modal" style="max-width:480px;">
+          <h2>Import ${totalCount} event${totalCount === 1 ? '' : 's'}</h2>
+          ${conflictMsg}
+          <p style="font-size:0.9rem;color:#555;">How should conflicts be handled?</p>
+          <div style="display:flex; flex-direction:column; gap:8px; margin-top:12px;">
+            <button class="btn btn-primary" data-mode="merge">Merge — add new dates only, keep existing</button>
+            <button class="btn" data-mode="overwrite">Overwrite — replace title, description, and images on conflicts</button>
+            <button class="btn" data-mode="skip">Skip conflicts — same as Merge</button>
+          </div>
+          <div class="modal-actions">
+            <button class="btn" data-mode="">Cancel</button>
+          </div>
+          <p style="font-size:0.75rem;color:#999;margin-top:12px;">
+            New dates always import their embedded images. Overwrite replaces existing images
+            for that date with the ones in the .ics file.
+          </p>
+        </div>
+      </div>
+    `;
+    state.modalOpen = true;
+    const close = (mode) => {
+      root.innerHTML = '';
+      state.modalOpen = false;
+      resolve(mode || null);
+    };
+    root.querySelectorAll('button[data-mode]').forEach(b => {
+      b.onclick = () => close(b.dataset.mode);
+    });
+    document.getElementById('ics-backdrop').addEventListener('click', e => {
+      if (e.target.id === 'ics-backdrop') close(null);
+    });
+  });
+}
+
+
+/* ---- ?scrapbook=YYYY-MM-DD deep link ----
+ * When the page loads with ?scrapbook=YYYY-MM-DD, auto-fetch the matching
+ * .ics from the server (if the event isn't already in local IndexedDB),
+ * install it silently, then open the scrapbook popup for that date.
+ * This is the landing target used by URLs embedded in emailed .ics files.
+ */
+async function fetchAndInstallScrapbookIcs(dateKey) {
+  let files;
+  try {
+    files = await listServerIcsFiles();
+  } catch (err) {
+    console.warn('Could not list server .ics files:', err);
+    return false;
+  }
+  // Prefer scrapbook-<dateKey>-*.ics, then any *<dateKey>*.ics
+  const prefix = `scrapbook-${dateKey}`;
+  const candidates = files.filter(f => f.name.startsWith(prefix));
+  const fallback  = files.filter(f => f.name.includes(dateKey) && !candidates.includes(f));
+  const ordered   = candidates.concat(fallback);
+  if (ordered.length === 0) return false;
+  // Pick most recently modified
+  ordered.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+  const pick = ordered[0];
+  let text;
+  try {
+    text = await fetchServerIcsFile(pick.name);
+  } catch (err) {
+    console.warn('Could not fetch', pick.name, err);
+    return false;
+  }
+  const incoming = parseIcs(text);
+  const ev = incoming.find(e => e.dateKey === dateKey) || incoming[0];
+  if (!ev) return false;
+
+  // Silent install (no conflict dialog) — only create if missing.
+  // Check by UID first (matches scrapbook-<id>@local), then fall back to dateKey+title match.
+  let alreadyExists = null;
+  if (ev.uid) {
+    const m = ev.uid.match(/^scrapbook-(.+)@local$/);
+    if (m) alreadyExists = await getEventById(m[1]);
+  }
+  if (!alreadyExists) {
+    const existingOnDate = await getEventsForDate(ev.dateKey);
+    alreadyExists = existingOnDate.find(e => e.title === ev.title) || null;
+  }
+  if (alreadyExists) return true;
+  const fresh = {
+    dateKey:     ev.dateKey,
+    category:    'personal',
+    readOnly:    false,
+    source:      null,
+    title:       ev.title,
+    description: ev.description,
+    imageIds:    [],
+    imageUrls:   (ev.importedUrls || []).map((url, i) => ({ url, addedAt: Date.now() + i })),
+  };
+  await putEvent(fresh);
+  const ids = [];
+  for (const att of (ev.attachments || [])) {
+    try {
+      const { width, height } = await imageDimensions(att.blob);
+      const rec = await addImage(ev.dateKey, att.blob, att.mime, width, height);
+      ids.push(rec.id);
+    } catch (err) {
+      console.warn('Failed to install attachment', err);
+    }
+  }
+  if (ids.length > 0) {
+    fresh.imageIds = ids;
+    await putEvent(fresh);
+  }
+  return true;
+}
+
+async function maybeOpenScrapbookFromUrl() {
+  const params = new URLSearchParams(location.search);
+  const dateKey = params.get('scrapbook');
+  if (!dateKey || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return;
+  let ev = await getEvent(dateKey);
+  if (!ev) {
+    const ok = await fetchAndInstallScrapbookIcs(dateKey);
+    if (ok) {
+      await renderCalendar();
+      ev = await getEvent(dateKey);
+    }
+  }
+  if (!ev) {
+    showToast(`No scrapbook found for ${dateKey}`, () => {});
+    return;
+  }
+  openScrapbook(dateKey);
+}
+
+(async function init() {
+  try {
+    if (navigator.storage && navigator.storage.persist) {
+      navigator.storage.persist().catch(()=>{});
+    }
+    document.getElementById('importIcsBtn').onclick = openServerIcsBrowser;
+    await renderCalendar();
+    await maybeOpenScrapbookFromUrl();
+  } catch (e) {
+    console.error(e);
+    document.body.innerHTML = '<pre style="padding:20px;color:red;">' +
+      escapeHtml(e.stack || e.message) + '</pre>';
+  }
+})();
+</script>
+</body>
+</html>
